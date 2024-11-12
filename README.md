@@ -18,7 +18,7 @@ claude 3.5 sonnet✅
 
 claude Haiku✅
 
-几乎无限使用，几乎没有频率限制，max_tokens在8000上下
+几乎无限使用，几乎没有频率限制，他们的API对max_tokens不作判断要求，推测在8000左右。 适合有高频请求的需求
 
 支持的功能
 
