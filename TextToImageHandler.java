@@ -97,7 +97,7 @@ public class TextToImageHandler implements HttpHandler {
                 String modifiedRequestBody = textToImageJson.toString();
 
                 // 构建请求
-                String[] tmpToken = BearerTokenGenerator.GetBearer(modifiedRequestBody);
+                String[] tmpToken = BearerTokenGeneratorNative.GetBearer(modifiedRequestBody);
                 HttpRequest request = utils.buildHttpRequest(modifiedRequestBody, tmpToken);
 
                 // 发送请求并处理 SSE 流
