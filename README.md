@@ -5,7 +5,9 @@
 	https://play.google.com/store/apps/details?id=ai.chat.gpt.bot
 
 
-本项目是一个类 OpenAI 服务端程序，模拟OpenAI API标准的响应，无需提供Authorization，可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
+本项目是一个类 OpenAI 服务端程序，向接入OpenAI、Anthropic的某个API发送请求，然后模拟OpenAI API标准的响应
+
+作为服务端无需提供Authorization头，可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
 本项目核心是解决其内部算法Bearer生成逻辑
 支持的模型
