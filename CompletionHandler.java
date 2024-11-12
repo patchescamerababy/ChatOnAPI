@@ -149,7 +149,7 @@ public class CompletionHandler implements HttpHandler {
                 String modifiedRequestBody = newRequestJson.toString();
                 System.out.println("Modified Request JSON: " + newRequestJson.toString());
                 // 获取一次性 Bearer Token
-                String[] tmpToken = BearerTokenGenerator.GetBearer(modifiedRequestBody);
+                String[] tmpToken = BearerTokenGeneratorNative.GetBearer(modifiedRequestBody);
                 // 使用通用的 HttpRequest 构建方法
                 HttpRequest request = buildHttpRequest(modifiedRequestBody, tmpToken);
 
