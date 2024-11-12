@@ -31,7 +31,8 @@ TextToImage:（仅限于 gpt-4o 和 gpt-4o-mini 模型）
 
 	/v1/images/generations
 
-ImageToText：需要图片直链，本项目暂未实现。由于需要直链，服务要部署在服务器上，但未做Authorization验证，因此本项目不适合部署在服务器上，除非开启防火墙白名单
+ImageToText：需要图片直链，本项目暂未实现。
+由于需要直链，服务要部署在服务器上，本项目但未做Authorization验证，因此不适合部署在服务器上，除非开启防火墙白名单
 
 更新：用Python已实现，未进行高并发测试
 
