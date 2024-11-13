@@ -9,7 +9,7 @@
 
 可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
-Demo👇 
+Demo👇 ，需要提供任意authorization
 
 对话：
 
