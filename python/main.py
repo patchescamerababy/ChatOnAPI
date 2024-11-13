@@ -1,11 +1,11 @@
-# main.py
-
 import asyncio
 import json
 import sys
 import uuid
 import base64
 import re
+import os
+import argparse
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -21,8 +21,9 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-from bearer_token import BearerTokenGenerator  # 导入 BearerTokenGenerator
+from bearer_token import BearerTokenGenerator
 
 # 模型列表
 MODELS = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude"]
@@ -44,6 +45,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],  # 允许GET, POST, OPTIONS方法
     allow_headers=["Content-Type", "Authorization"],  # 允许的头部
 )
+
+# 挂载静态文件路由以提供 images 目录的内容
+app.mount("/images", StaticFiles(directory="images"), name="images")
 
 # 辅助函数
 def send_error_response(message: str, status_code: int = 400):
@@ -98,6 +102,25 @@ async def download_image(image_url: str) -> Optional[bytes]:
             print(f"Error downloading image: {e}")
             return None
 
+def save_base64_image(base64_str: str, images_dir: str = "images") -> str:
+    """
+    将Base64编码的图片保存到images目录，返回文件名
+    """
+    if not os.path.exists(images_dir):
+        os.makedirs(images_dir)
+    image_data = base64.b64decode(base64_str)
+    filename = f"{uuid.uuid4()}.png"  # 默认保存为png格式
+    file_path = os.path.join(images_dir, filename)
+    with open(file_path, "wb") as f:
+        f.write(image_data)
+    return filename
+
+def is_base64_image(url: str) -> bool:
+    """
+    判断URL是否为Base64编码的图片
+    """
+    return url.startswith("data:image/")
+
 # 根路径GET请求处理
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -137,23 +160,53 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     model = request_body.get("model", "gpt-4o")
     is_stream = request_body.get("stream", False)  # 获取 stream 字段
 
+    has_image = False
+    has_text = False
+
     # 清理和提取消息内容
     cleaned_messages = []
     for message in messages:
         content = message.get("content", "")
         if isinstance(content, list):
-            extracted_content = " ".join(
-                item.get("text", "") for item in content if "text" in item
-            ).strip()
+            text_parts = []
+            images = []
+            for item in content:
+                if "text" in item:
+                    text_parts.append(item.get("text", ""))
+                elif "image_url" in item:
+                    has_image = True
+                    image_info = item.get("image_url", {})
+                    url = image_info.get("url", "")
+                    if is_base64_image(url):
+                        # 解码并保存图片
+                        base64_str = url.split(",")[1]
+                        filename = save_base64_image(base64_str)
+                        base_url = app.state.base_url
+                        image_url = f"{base_url}/images/{filename}"
+                        images.append({"data": image_url})
+                    else:
+                        images.append({"data": url})
+            extracted_content = " ".join(text_parts).strip()
             if extracted_content:
+                has_text = True
                 message["content"] = extracted_content
+                if images:
+                    message["images"] = images
                 cleaned_messages.append(message)
                 print("Extracted:", extracted_content)
             else:
-                print("Deleted message with empty content.")
+                if images:
+                    has_image = True
+                    message["content"] = ""
+                    message["images"] = images
+                    cleaned_messages.append(message)
+                    print("Extracted image only.")
+                else:
+                    print("Deleted message with empty content.")
         elif isinstance(content, str):
             content_str = content.strip()
             if content_str:
+                has_text = True
                 message["content"] = content_str
                 cleaned_messages.append(message)
                 print("Retained content:", content_str)
@@ -171,7 +224,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
 
     # 构建新的请求JSON
     new_request_json = {
-        "function_image_gen": False,  # 根据您最新的Java代码，这里设置为False
+        "function_image_gen": False,
         "function_web_search": True,
         "max_tokens": max_tokens,
         "model": model,
@@ -274,6 +327,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
 
                 sse_lines = response.text.splitlines()
                 content_builder = ""
+                images_urls = []
 
                 for line in sse_lines:
                     if line.startswith("data: "):
@@ -296,7 +350,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                     "id": f"chatcmpl-{uuid.uuid4()}",
                     "object": "chat.completion",
                     "created": int(datetime.now(timezone.utc).timestamp()),
-                    "model": "gpt-4o",
+                    "model": model,
                     "choices": [
                         {
                             "index": 0,
@@ -308,6 +362,15 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                         }
                     ],
                 }
+
+                # 处理图片（如果有）
+                if has_image:
+                    images = []
+                    for message in cleaned_messages:
+                        if "images" in message:
+                            for img in message["images"]:
+                                images.append({"data": img["data"]})
+                    openai_response["choices"][0]["message"]["images"] = images
 
                 return JSONResponse(content=openai_response, status_code=200)
             except httpx.RequestError as exc:
@@ -357,7 +420,7 @@ async def images_generations(request: Request):
                 "role": "user"
             }
         ],
-        "model": "gpt-4o",  # 固定 model
+        "model": "gpt-4o",  # 固定 model，只能gpt-4o或gpt-4o-mini
         "source": "chat/pro_image"  # 固定 source
     }
 
@@ -443,6 +506,11 @@ async def images_generations(request: Request):
             # 转换为 Base64
             image_base64 = base64.b64encode(image_bytes).decode('utf-8')
 
+            # 将图片保存到images目录并构建可访问的URL
+            filename = save_base64_image(image_base64)
+            base_url = app.state.base_url
+            accessible_url = f"{base_url}/images/{filename}"
+
             # 根据 response_format 返回相应的响应
             if response_format.lower() == "b64_json":
                 response_json = {
@@ -454,7 +522,15 @@ async def images_generations(request: Request):
                 }
                 return JSONResponse(content=response_json, status_code=200)
             else:
-                return send_error_response(f"不支持的 response_format: {response_format}", status_code=400)
+                # 构建包含可访问URL的响应
+                response_json = {
+                    "data": [
+                        {
+                            "url": accessible_url
+                        }
+                    ]
+                }
+                return JSONResponse(content=response_json, status_code=200)
         except httpx.RequestError as exc:
             print(f"请求失败: {exc}")
             return send_error_response(f"请求失败: {str(exc)}", status_code=500)
@@ -464,14 +540,22 @@ async def images_generations(request: Request):
 
 # 运行服务器
 def main():
-    # 查找可用端口
-    try:
-        port = asyncio.run(get_available_port(INITIAL_PORT, 65535))
-    except RuntimeError as e:
-        print(str(e))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="启动ChatOn API服务器")
+    parser.add_argument('--base_url', type=str, default='http://localhost', help='Base URL for accessing images')
+    parser.add_argument('--port', type=int, default=INITIAL_PORT, help='服务器监听端口')
+    args = parser.parse_args()
 
-    print(f"Server started on port {port}")
+    base_url = args.base_url
+    port = args.port
+
+    # 确保 images 目录存在
+    if not os.path.exists("images"):
+        os.makedirs("images")
+
+    # 设置 FastAPI 应用的 state
+    app.state.base_url = base_url
+
+    print(f"Server started on port {port} with base_url: {base_url}")
 
     # 运行FastAPI应用
     uvicorn.run(app, host="0.0.0.0", port=port)
