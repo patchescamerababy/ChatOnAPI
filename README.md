@@ -45,3 +45,5 @@ ImageToText：可传直链，如果传base64编码的图片需要部署在公网
 Demo👇 有限试用、目前无需token，如果传入的model不正确自动回落至claude 3.5 sonnet
 
 	https://xen.kmoljklj.top:8443/v1/chat/completions
+
+ 	https://xen.kmoljklj.top:8443/v1/images/generations
