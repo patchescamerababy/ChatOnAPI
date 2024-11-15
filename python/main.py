@@ -6,7 +6,7 @@ import base64
 import re
 import os
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 import httpx
@@ -29,7 +29,7 @@ from bearer_token import BearerTokenGenerator
 MODELS = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude"]
 
 # 默认端口
-INITIAL_PORT = 80
+INITIAL_PORT = 8080
 
 # 外部API的URL
 EXTERNAL_API_URL = "https://api.chaton.ai/chats/stream"
@@ -102,10 +102,34 @@ async def download_image(image_url: str) -> Optional[bytes]:
             print(f"Error downloading image: {e}")
             return None
 
+def cleanup_images(images_dir: str = "images", age_seconds: int = 60):
+    """
+    清理 images 目录中创建时间超过指定秒数的图片
+    """
+    now = datetime.now(timezone.utc)
+    cutoff_time = now - timedelta(seconds=age_seconds)
+    
+    if not os.path.exists(images_dir):
+        return
+    
+    for filename in os.listdir(images_dir):
+        file_path = os.path.join(images_dir, filename)
+        if os.path.isfile(file_path):
+            try:
+                file_creation_time = datetime.fromtimestamp(os.path.getctime(file_path), timezone.utc)
+                if file_creation_time < cutoff_time:
+                    os.remove(file_path)
+                    print(f"已删除旧图片: {filename}")
+            except Exception as e:
+                print(f"无法删除文件 {filename}: {e}")
+
 def save_base64_image(base64_str: str, images_dir: str = "images") -> str:
     """
     将Base64编码的图片保存到images目录，返回文件名
     """
+    # 先清理1分钟前的所有图片
+    cleanup_images(images_dir, age_seconds=60)
+    
     if not os.path.exists(images_dir):
         os.makedirs(images_dir)
     image_data = base64.b64decode(base64_str)
@@ -113,6 +137,7 @@ def save_base64_image(base64_str: str, images_dir: str = "images") -> str:
     file_path = os.path.join(images_dir, filename)
     with open(file_path, "wb") as f:
         f.write(image_data)
+    print(f"保存图片: {filename}")
     return filename
 
 def is_base64_image(url: str) -> bool:
@@ -132,7 +157,7 @@ async def read_root():
         </head>
         <body>
             <h1>Welcome to API</h1>
-            <p>This API is used to interact with the ChatGPT model. You can send messages to the model and receive responses.</p>
+            <p>You can send messages to the model and receive responses.</p>
         </body>
     </html>
     """
@@ -159,6 +184,10 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     max_tokens = request_body.get("max_tokens", 8000)
     model = request_body.get("model", "gpt-4o")
     is_stream = request_body.get("stream", False)  # 获取 stream 字段
+
+    # 验证模型
+    if model not in MODELS:
+        raise HTTPException(status_code=400, detail=f"无效的 model: {model}. 可用的模型有: {', '.join(MODELS)}")
 
     has_image = False
     has_text = False
@@ -218,17 +247,13 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     if not cleaned_messages:
         raise HTTPException(status_code=400, detail="所有消息的内容均为空。")
 
-    # 验证模型
-    if model not in MODELS:
-        model = "gpt-4o"
-
     # 构建新的请求JSON
     new_request_json = {
         "function_image_gen": False,
         "function_web_search": True,
         "max_tokens": max_tokens,
         "model": model,
-        "source": "chat/free",
+        "source": "chat/pro",
         "temperature": temperature,
         "top_p": top_p,
         "messages": cleaned_messages,
@@ -287,7 +312,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                                                     "id": sse_json.get(
                                                         "id", str(uuid.uuid4())
                                                     ),
-                                                    "model": sse_json.get("model", "gpt-4o"),
+                                                    "model": model,  # 使用用户传入的model
                                                     "system_fingerprint": f"fp_{uuid.uuid4().hex[:12]}",
                                                 }
                                                 new_sse_line = f"data: {json.dumps(new_sse_json, ensure_ascii=False)}\n\n"
@@ -350,7 +375,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                     "id": f"chatcmpl-{uuid.uuid4()}",
                     "object": "chat.completion",
                     "created": int(datetime.now(timezone.utc).timestamp()),
-                    "model": model,
+                    "model": model,  # 使用用户传入的model
                     "choices": [
                         {
                             "index": 0,
@@ -397,11 +422,17 @@ async def images_generations(request: Request):
 
     user_prompt = request_body.get("prompt", "").strip()
     response_format = request_body.get("response_format", "b64_json").strip()
+    model = request_body.get("model", "gpt-4o")  # 获取用户传入的model
 
     if not user_prompt:
         return send_error_response("Prompt 不能为空。", status_code=400)
 
+    # 验证模型
+    if model not in MODELS:
+        return send_error_response(f"无效的 model: {model}. 可用的模型有: {', '.join(MODELS)}", status_code=400)
+
     print(f"Prompt: {user_prompt}")
+    print(f"Model: {model}")
 
     # 构建新的 TextToImage JSON 请求体
     text_to_image_json = {
@@ -420,7 +451,7 @@ async def images_generations(request: Request):
                 "role": "user"
             }
         ],
-        "model": "gpt-4o",  # 固定 model，只能gpt-4o或gpt-4o-mini
+        "model": model,  # 使用用户传入的model
         "source": "chat/pro_image"  # 固定 source
     }
 
@@ -514,6 +545,7 @@ async def images_generations(request: Request):
             # 根据 response_format 返回相应的响应
             if response_format.lower() == "b64_json":
                 response_json = {
+                    "model": model,  # 返回用户传入的model
                     "data": [
                         {
                             "b64_json": image_base64
@@ -524,6 +556,7 @@ async def images_generations(request: Request):
             else:
                 # 构建包含可访问URL的响应
                 response_json = {
+                    "model": model,  # 返回用户传入的model
                     "data": [
                         {
                             "url": accessible_url
