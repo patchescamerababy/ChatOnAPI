@@ -7,6 +7,8 @@
 
 本项目是一个类 OpenAI 服务端程序，向接入OpenAI、Anthropic的某个API发送请求，然后模拟OpenAI API标准的响应
 
+由于是第三方接入的API，最终返回内容由他们所决定，是否降智需自行判断
+
 可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
 Demo👇  需要提供任意authorization，均支持联网
