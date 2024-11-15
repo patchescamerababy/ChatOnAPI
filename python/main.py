@@ -438,8 +438,8 @@ async def images_generations(request: Request):
     text_to_image_json = {
         "function_image_gen": True,
         "function_web_search": True,
-        "image_aspect_ratio": "1:1",
-        "image_style": "photographic",  # 暂时固定 image_style
+        "image_aspect_ratio": "1:1",  # 图片比例可选：1:1/9:19/16:9/4:3
+        "image_style": "photographic",  # 风格可选：photographic、anime、digital-art、digital-art、cinematic、digital-art等
         "max_tokens": 8000,
         "messages": [
             {
@@ -451,7 +451,7 @@ async def images_generations(request: Request):
                 "role": "user"
             }
         ],
-        "model": model,  # 使用用户传入的model
+        "model": "gpt-4o",  # 固定 model，画图只能gpt-4o或gpt-4o-mini
         "source": "chat/pro_image"  # 固定 source
     }
 
