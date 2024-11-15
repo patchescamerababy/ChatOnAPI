@@ -9,13 +9,13 @@
 
 可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
-Demo👇 ，需要提供任意authorization
+Demo👇  需要提供任意authorization，均支持联网
 
-对话：
+对话：（支持上传图片）
 
 	https://api-chaton.pages.dev/v1/chat/completions
  
-文生图：
+画图：
 
  	https://api-chaton.pages.dev/v1/images/generations
 
