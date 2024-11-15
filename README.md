@@ -23,6 +23,7 @@ Demo👇  需要提供任意authorization，均支持联网
   
 本项目核心是解决其内部算法Bearer生成逻辑
 
+
 支持的模型
 
 gpt-4o✅
@@ -35,6 +36,8 @@ claude Haiku✅(claude)
 
 几乎无限使用，几乎没有频率限制，他们的API对max_tokens不作判断要求，推测在8000左右。 适合有高频请求的需求
 
+本项目未做Authorization验证
+
 支持的功能
 
 Completions: （均可联网搜索）
@@ -42,16 +45,37 @@ Completions: （均可联网搜索）
 	/v1/chat/completions
 
 
-TextToImage:（仅限于 gpt-4o 和 gpt-4o-mini 模型，目前固定为gpt-4o）
+TextToImage:（仅限于 gpt-4o 和 gpt-4o-mini 模型可画图，目前固定为gpt-4o）
 
 	/v1/images/generations
 
 ImageToText：可传直链，如果传base64编码的图片需要部署在公网
 
-由于需要直链，服务要部署在服务器上，本项目未做Authorization验证
+已用Python实现(未提供bearer_token.py)，最大并发量比Java实现的要低，
 
-已用Python实现(未提供bearer_token.py)
+Usage:
 
+	--port 
+
+指定的端口，默认80
+
+ 	--base_url
+
+OpenAI标准中有两种格式，Base64编码和URL直链，对于后者，本项目会直接将URL发送出去，对于前者则必须将本程序部署在服务器上
+
+这是传图需要的URL，为http或https开头的url，不以/结尾，确保这个url能被外部访问，必须可被访问，否则会报错
+
+例如:
+
+python3 main.py --port 80 --base_url https://example.com
+
+java -jar 80 https://example.com
+
+程序会自动在base_url后添加/images/+随机图片名
+
+程序自带简易http访问功能，默认将接收到的Base64图片在程序所在路径的images下，会自动清理1分钟前的图片，也可用nginx搭建http程序
+
+例如会上传https://api-chaton.pages.dev/images/[uuid].png URL，则填入的base_url为https://api-chaton.pages.dev
 
 为避免项目被take down，Bearer核心算法可联系📧patches.camera_0m@icloud.com有偿获取
 
