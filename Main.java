@@ -47,7 +47,7 @@ public class Main {
         HttpServer server = createHttpServer(port);
         server.createContext("/v1/chat/completions", new CompletionHandler());
         server.createContext("/v1/images/generations", new TextToImageHandler());
-
+        server.createContext("/v1/models", new ModelsHandler());
         // Serve images directory
         server.createContext("/images/", new HttpHandler() {
             @Override
