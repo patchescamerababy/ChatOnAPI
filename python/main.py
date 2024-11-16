@@ -34,8 +34,26 @@ INITIAL_PORT = 8080
 # 外部API的URL
 EXTERNAL_API_URL = "https://api.chaton.ai/chats/stream"
 
+# 定义 images 目录
+IMAGES_DIR = "images"
+
+# 确保 images 目录存在
+def ensure_images_dir_exists(directory: str = IMAGES_DIR):
+    try:
+        os.makedirs(directory, exist_ok=True)
+        print(f"Directory '{directory}' is ready.")
+    except Exception as e:
+        print(f"Failed to create directory '{directory}': {e}")
+        sys.exit(1)
+
+# 在挂载静态文件之前确保 images 目录存在
+ensure_images_dir_exists()
+
 # 初始化FastAPI应用
 app = FastAPI()
+
+# 挂载静态文件路由以提供 images 目录的内容
+app.mount("/images", StaticFiles(directory=IMAGES_DIR), name="images")
 
 # 添加CORS中间件
 app.add_middleware(
@@ -45,9 +63,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],  # 允许GET, POST, OPTIONS方法
     allow_headers=["Content-Type", "Authorization"],  # 允许的头部
 )
-
-# 挂载静态文件路由以提供 images 目录的内容
-app.mount("/images", StaticFiles(directory="images"), name="images")
 
 # 辅助函数
 def send_error_response(message: str, status_code: int = 400):
@@ -102,7 +117,7 @@ async def download_image(image_url: str) -> Optional[bytes]:
             print(f"Error downloading image: {e}")
             return None
 
-def cleanup_images(images_dir: str = "images", age_seconds: int = 60):
+def cleanup_images(images_dir: str = IMAGES_DIR, age_seconds: int = 60):
     """
     清理 images 目录中创建时间超过指定秒数的图片
     """
@@ -123,21 +138,29 @@ def cleanup_images(images_dir: str = "images", age_seconds: int = 60):
             except Exception as e:
                 print(f"无法删除文件 {filename}: {e}")
 
-def save_base64_image(base64_str: str, images_dir: str = "images") -> str:
+def save_base64_image(base64_str: str, images_dir: str = IMAGES_DIR) -> str:
     """
     将Base64编码的图片保存到images目录，返回文件名
     """
     # 先清理1分钟前的所有图片
     cleanup_images(images_dir, age_seconds=60)
     
-    if not os.path.exists(images_dir):
-        os.makedirs(images_dir)
-    image_data = base64.b64decode(base64_str)
+    try:
+        image_data = base64.b64decode(base64_str)
+    except base64.binascii.Error as e:
+        print(f"Base64解码失败: {e}")
+        raise ValueError("Invalid base64 image data")
+    
     filename = f"{uuid.uuid4()}.png"  # 默认保存为png格式
     file_path = os.path.join(images_dir, filename)
-    with open(file_path, "wb") as f:
-        f.write(image_data)
-    print(f"保存图片: {filename}")
+    try:
+        with open(file_path, "wb") as f:
+            f.write(image_data)
+        print(f"保存图片: {filename}")
+    except Exception as e:
+        print(f"保存图片失败: {e}")
+        raise
+    
     return filename
 
 def is_base64_image(url: str) -> bool:
@@ -208,11 +231,15 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                     url = image_info.get("url", "")
                     if is_base64_image(url):
                         # 解码并保存图片
-                        base64_str = url.split(",")[1]
-                        filename = save_base64_image(base64_str)
-                        base_url = app.state.base_url
-                        image_url = f"{base_url}/images/{filename}"
-                        images.append({"data": image_url})
+                        try:
+                            base64_str = url.split(",")[1]
+                            filename = save_base64_image(base64_str)
+                            base_url = app.state.base_url
+                            image_url = f"{base_url}/images/{filename}"
+                            images.append({"data": image_url})
+                        except (IndexError, ValueError) as e:
+                            print(f"处理Base64图片失败: {e}")
+                            continue
                     else:
                         images.append({"data": url})
             extracted_content = " ".join(text_parts).strip()
@@ -538,7 +565,13 @@ async def images_generations(request: Request):
             image_base64 = base64.b64encode(image_bytes).decode('utf-8')
 
             # 将图片保存到images目录并构建可访问的URL
-            filename = save_base64_image(image_base64)
+            try:
+                filename = save_base64_image(image_base64)
+            except ValueError as ve:
+                return send_error_response(f"图像保存失败: {ve}", status_code=500)
+            except Exception as e:
+                return send_error_response(f"图像保存过程中发生错误: {e}", status_code=500)
+            
             base_url = app.state.base_url
             accessible_url = f"{base_url}/images/{filename}"
 
@@ -571,7 +604,32 @@ async def images_generations(request: Request):
             print(f"内部服务器错误: {exc}")
             return send_error_response(f"内部服务器错误: {str(exc)}", status_code=500)
 
-# 运行服务器
+@app.get("/v1/models", response_class=JSONResponse)
+async def get_models():
+    models_data = {
+        "object": "list",
+        "data": [
+            {"id": "gpt-4o", "object": "model"},
+            {"id": "gpt-4o-mini", "object": "model"},
+            {"id": "claude-3-5-sonnet", "object": "model"},
+            {"id": "claude", "object": "model"}
+        ]
+    }
+    return models_data
+
+async def get_available_port(start_port: int = INITIAL_PORT, end_port: int = 65535) -> int:
+    """查找可用的端口号"""
+    for port in range(start_port, end_port + 1):
+        try:
+            # 尝试绑定端口
+            server = await asyncio.start_server(lambda r, w: None, host="0.0.0.0", port=port)
+            server.close()
+            await server.wait_closed()
+            return port
+        except OSError:
+            continue
+    raise RuntimeError(f"No available ports between {start_port} and {end_port}")
+
 def main():
     parser = argparse.ArgumentParser(description="启动ChatOn API服务器")
     parser.add_argument('--base_url', type=str, default='http://localhost', help='Base URL for accessing images')
@@ -581,29 +639,22 @@ def main():
     base_url = args.base_url
     port = args.port
 
-    # 确保 images 目录存在
-    if not os.path.exists("images"):
-        os.makedirs("images")
-
     # 设置 FastAPI 应用的 state
     app.state.base_url = base_url
 
-    print(f"Server started on port {port} with base_url: {base_url}")
+    print(f"Starting server on port {port} with base_url: {base_url}")
+
+    # 检查端口可用性
+    try:
+        port = asyncio.run(get_available_port(start_port=port))
+    except RuntimeError as e:
+        print(e)
+        return
+
+    print(f"Server running on available port: {port}")
 
     # 运行FastAPI应用
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-async def get_available_port(start_port: int = INITIAL_PORT, end_port: int = 65535) -> int:
-    """查找可用的端口号"""
-    for port in range(start_port, end_port + 1):
-        try:
-            server = await asyncio.start_server(lambda r, w: None, host="0.0.0.0", port=port)
-            server.close()
-            await server.wait_closed()
-            return port
-        except OSError:
-            continue
-    raise RuntimeError(f"No available ports between {start_port} and {end_port}")
 
 if __name__ == "__main__":
     main()
