@@ -13,11 +13,11 @@
 
 Demo👇  需要提供任意authorization，均支持联网
 
-对话：（支持上传图片）
+对话：（支持上传图片、已手动屏蔽在此路径的画图请求）
 
 	https://api-chaton.pages.dev/v1/chat/completions
  
-画图：
+画图（仅为gpt-4o/gpt-4o-mini）：
 
  	https://api-chaton.pages.dev/v1/images/generations
 
