@@ -1103,7 +1103,6 @@ func main() {
 	log.Printf("最终的 Base URL: %s\n", baseURL)
 	baseURLMutex.RUnlock()
 
-	// 优雅关闭服务器的信号处理
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
