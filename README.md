@@ -42,7 +42,7 @@ Demo👇有限试用、需要提供任意authorization，均支持联网。如�
  	curl --request POST 'https://api-chaton.pages.dev/v1/images/generations' \
 	--header 'Content-Type: application/json' \
 	--header "Authorization: 123" \
-	--data '{"model": "gpt-4o", "prompt": "girl", "n": 1, "size": "1024x1024"}'
+	--data '{"prompt": "girl", "model": "gpt-4o", "n": 1, "size": "1024x1024"}'
   
 本项目核心是解决其内部算法Bearer生成逻辑
 
