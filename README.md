@@ -11,21 +11,31 @@
 
 可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
-Demo👇  需要提供任意authorization，均支持联网
+Demo👇有限试用、需要提供任意authorization，均支持联网。如果传入的model不正确自动回落至claude 3.5 sonnet
 
 对话：支持上传图片。已手动屏蔽在此路径的画图请求，因为他们返回的URL本质不可访问的，需要由服务端提取路径、替换URL再下载
 
 	https://api-chaton.pages.dev/v1/chat/completions
  
+示例
+
+ 	curl --request POST 'https://api-chaton.pages.dev/v1/chat/completions' \
+ 	--header 'Content-Type: application/json' \
+ 	--header "Authorization: 123" \
+ 	--data '{"top_p":1,"stream":false,"temperature":0,"messages":[{"role":"user","content":"hello"}],"model":"gpt-4o"}'
+  
 画图：仅为gpt-4o/gpt-4o-mini
 
  	https://api-chaton.pages.dev/v1/images/generations
 
-  有限试用、目前无需token，如果传入的model不正确自动回落至claude 3.5 sonnet
+  
 
-画图请求的JSON示例格式
+示例（model字段无意义，仅为占位）
 
-	{"prompt":"prompt","response_format":"b64_json","model":"dall-e-3","style":"vivid"}
+	curl --request POST 'https://api-chaton.pages.dev/v1/images/generations' \
+	--header 'Content-Type: application/json' \
+	--header "Authorization: 123" \
+	--data '{"prompt":"girl","response_format":"b64_json","model":"gpt-4o","style":"vivid"}'
   
 本项目核心是解决其内部算法Bearer生成逻辑
 
