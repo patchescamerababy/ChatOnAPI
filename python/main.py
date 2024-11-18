@@ -123,10 +123,10 @@ def cleanup_images(images_dir: str = IMAGES_DIR, age_seconds: int = 60):
     """
     now = datetime.now(timezone.utc)
     cutoff_time = now - timedelta(seconds=age_seconds)
-    
+
     if not os.path.exists(images_dir):
         return
-    
+
     for filename in os.listdir(images_dir):
         file_path = os.path.join(images_dir, filename)
         if os.path.isfile(file_path):
@@ -144,13 +144,13 @@ def save_base64_image(base64_str: str, images_dir: str = IMAGES_DIR) -> str:
     """
     # 先清理1分钟前的所有图片
     cleanup_images(images_dir, age_seconds=60)
-    
+
     try:
         image_data = base64.b64decode(base64_str)
     except base64.binascii.Error as e:
         print(f"Base64解码失败: {e}")
         raise ValueError("Invalid base64 image data")
-    
+
     filename = f"{uuid.uuid4()}.png"  # 默认保存为png格式
     file_path = os.path.join(images_dir, filename)
     try:
@@ -160,7 +160,7 @@ def save_base64_image(base64_str: str, images_dir: str = IMAGES_DIR) -> str:
     except Exception as e:
         print(f"保存图片失败: {e}")
         raise
-    
+
     return filename
 
 def is_base64_image(url: str) -> bool:
@@ -186,7 +186,7 @@ async def read_root():
     """
     return HTMLResponse(content=html_content, status_code=200)
 
-# 聊天完成处理
+# 聊天完成处理（保留原有逻辑，未修改）
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     """
@@ -357,7 +357,6 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                # CORS头已通过中间件处理，无需在这里重复添加
             },
         )
     else:
@@ -448,161 +447,221 @@ async def images_generations(request: Request):
         return send_error_response("缺少必需的字段: prompt", status_code=400)
 
     user_prompt = request_body.get("prompt", "").strip()
-    response_format = request_body.get("response_format", "b64_json").strip()
-    model = request_body.get("model", "gpt-4o")  # 获取用户传入的model
+    response_format = request_body.get("response_format", "").strip().lower()
+    model = request_body.get("model", "gpt-4o")
+    n = request_body.get("n", 1)  # 生成图像数量，默认1
+    size = request_body.get("size", "1024x1024")  # 图片尺寸，默认1024x1024
+
+    is_base64_response = response_format == "b64_json"
 
     if not user_prompt:
         return send_error_response("Prompt 不能为空。", status_code=400)
 
-    # 验证模型
-    if model not in MODELS:
-        return send_error_response(f"无效的 model: {model}. 可用的模型有: {', '.join(MODELS)}", status_code=400)
-
     print(f"Prompt: {user_prompt}")
+    print(f"Response Format: {response_format}")
+    print(f"Number of images to generate (n): {n}")
+    print(f"Size: {size}")
     print(f"Model: {model}")
 
-    # 构建新的 TextToImage JSON 请求体
-    text_to_image_json = {
-        "function_image_gen": True,
-        "function_web_search": True,
-        "image_aspect_ratio": "1:1",  # 图片比例可选：1:1/9:19/16:9/4:3
-        "image_style": "photographic",  # 风格可选：photographic、anime、digital-art、digital-art、cinematic、digital-art等
-        "max_tokens": 8000,
-        "messages": [
-            {
-                "content": "You are a helpful artist, please based on imagination draw a picture.",
-                "role": "system"
-            },
-            {
-                "content": "Draw: " + user_prompt,
-                "role": "user"
-            }
-        ],
-        "model": "gpt-4o",  # 固定 model，画图只能gpt-4o或gpt-4o-mini
-        "source": "chat/pro_image"  # 固定 source
-    }
+    # 设置最大尝试次数为 2 * n
+    max_attempts = 2 * n
+    print(f"Max Attempts: {max_attempts}")
 
-    modified_request_body = json.dumps(text_to_image_json, ensure_ascii=False)
-    print("Modified Request JSON:", modified_request_body)
+    # 初始化用于存储多个 URL 的线程安全列表
+    final_download_urls: List[str] = []
 
-    # 获取Bearer Token
-    tmp_token = BearerTokenGenerator.get_bearer(modified_request_body, path="/chats/stream")
-    if not tmp_token:
-        return send_error_response("无法生成 Bearer Token", status_code=500)
-
-    bearer_token, formatted_date = tmp_token
-
-    headers = {
-        "Date": formatted_date,
-        "Client-time-zone": "-05:00",
-        "Authorization": bearer_token,
-        "User-Agent": "ChatOn_Android/1.53.502",
-        "Accept-Language": "en-US",
-        "X-Cl-Options": "hb",
-        "Content-Type": "application/json; charset=UTF-8",
-    }
-
-    async with httpx.AsyncClient(timeout=None) as client:
+    async def attempt_generate_image(attempt: int) -> Optional[str]:
+        """
+        尝试生成单张图像，带有重试机制。
+        """
         try:
-            response = await client.post(
-                EXTERNAL_API_URL, headers=headers, content=modified_request_body, timeout=None
-            )
-            if response.status_code != 200:
-                return send_error_response(f"API 错误: {response.status_code}", status_code=500)
+            # 构建新的 TextToImage JSON 请求体
+            text_to_image_json = {
+                "function_image_gen": True,
+                "function_web_search": True,
+                "image_aspect_ratio": "1:1",  # 图片比例可选：1:1/9:19/16:9/4:3
+                "image_style": "anime",  # 固定 image_style，可根据需要调整
+                "max_tokens": 8000,
+                "n": 1,  # 每次请求生成一张图像
+                "messages": [
+                    {
+                        "content": "You are a helpful artist, please draw a picture. Based on imagination, draw a picture with user message.",
+                        "role": "system"
+                    },
+                    {
+                        "content": "Draw: " + user_prompt,
+                        "role": "user"
+                    }
+                ],
+                "model": "gpt-4o",
+                "source": "chat/pro_image"  # 固定 source
+            }
 
-            # 初始化用于拼接 URL 的字符串
-            url_builder = ""
+            modified_request_body = json.dumps(text_to_image_json, ensure_ascii=False)
+            print(f"Attempt {attempt} - Modified Request JSON: {modified_request_body}")
 
-            # 读取 SSE 流并拼接 URL
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    data = line[6:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        sse_json = json.loads(data)
-                        if "choices" in sse_json:
-                            for choice in sse_json["choices"]:
-                                delta = choice.get("delta", {})
-                                content = delta.get("content")
-                                if content:
-                                    url_builder += content
-                    except json.JSONDecodeError:
-                        print("JSON解析错误")
-                        continue
+            # 获取Bearer Token
+            tmp_token = BearerTokenGenerator.get_bearer(modified_request_body, path="/chats/stream")
+            if not tmp_token:
+                print(f"Attempt {attempt} - 无法生成 Bearer Token")
+                return None
 
-            image_markdown = url_builder
-            # Step 1: 检查Markdown文本是否为空
-            if not image_markdown:
-                print("无法从 SSE 流中构建图像 Markdown。")
-                return send_error_response("无法从 SSE 流中构建图像 Markdown。", status_code=500)
+            bearer_token, formatted_date = tmp_token
 
-            # Step 2, 3, 4, 5: 处理图像
-            extracted_path = extract_path_from_markdown(image_markdown)
-            if not extracted_path:
-                print("无法从 Markdown 中提取路径。")
-                return send_error_response("无法从 Markdown 中提取路径。", status_code=500)
+            headers = {
+                "Date": formatted_date,
+                "Client-time-zone": "-05:00",
+                "Authorization": bearer_token,
+                "User-Agent": "ChatOn_Android/1.53.502",
+                "Accept-Language": "en-US",
+                "X-Cl-Options": "hb",
+                "Content-Type": "application/json; charset=UTF-8",
+            }
 
-            print(f"提取的路径: {extracted_path}")
+            async with httpx.AsyncClient(timeout=None) as client:
+                response = await client.post(
+                    EXTERNAL_API_URL,
+                    headers=headers,
+                    content=modified_request_body,
+                    timeout=None
+                )
 
-            # Step 5: 拼接最终的存储URL
-            storage_url = f"https://api.chaton.ai/storage/{extracted_path}"
-            print(f"存储URL: {storage_url}")
+                if response.status_code != 200:
+                    print(f"Attempt {attempt} - API 错误: {response.status_code}")
+                    return None
 
-            # 获取最终下载URL
-            final_download_url = await fetch_get_url_from_storage(storage_url)
-            if not final_download_url:
-                return send_error_response("无法从 storage URL 获取最终下载链接。", status_code=500)
+                # 读取 SSE 流并提取图像URL
+                sse_lines = response.text.splitlines()
+                image_markdown = ""
 
-            print(f"Final Download URL: {final_download_url}")
+                for line in sse_lines:
+                    if line.startswith("data: "):
+                        data = line[6:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            sse_json = json.loads(data)
+                            if "choices" in sse_json:
+                                for choice in sse_json["choices"]:
+                                    delta = choice.get("delta", {})
+                                    content = delta.get("content")
+                                    if content:
+                                        image_markdown += content
+                        except json.JSONDecodeError:
+                            print(f"Attempt {attempt} - JSON解析错误")
+                            continue
 
-            # 下载图像
-            image_bytes = await download_image(final_download_url)
-            if not image_bytes:
-                return send_error_response("无法从 URL 下载图像。", status_code=500)
+                # 检查Markdown文本是否为空
+                if not image_markdown:
+                    print(f"Attempt {attempt} - 无法从 SSE 流中构建图像 Markdown。")
+                    return None
 
-            # 转换为 Base64
-            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                # 从Markdown中提取图像路径
+                extracted_path = extract_path_from_markdown(image_markdown)
+                if not extracted_path:
+                    print(f"Attempt {attempt} - 无法从 Markdown 中提取路径。")
+                    return None
 
-            # 将图片保存到images目录并构建可访问的URL
+                print(f"Attempt {attempt} - 提取的路径: {extracted_path}")
+
+                # 拼接最终的存储URL
+                storage_url = f"https://api.chaton.ai/storage/{extracted_path}"
+                print(f"Attempt {attempt} - 存储URL: {storage_url}")
+
+                # 获取最终下载URL
+                final_download_url = await fetch_get_url_from_storage(storage_url)
+                if not final_download_url:
+                    print(f"Attempt {attempt} - 无法从 storage URL 获取最终下载链接。")
+                    return None
+
+                print(f"Attempt {attempt} - Final Download URL: {final_download_url}")
+
+                return final_download_url
+        except Exception as e:
+            print(f"Attempt {attempt} - 处理响应时发生错误: {e}")
+            return None
+
+    # 定义一个异步任务池，限制并发数量
+    semaphore = asyncio.Semaphore(10)  # 限制同时进行的任务数为10
+
+    async def generate_with_retries(attempt: int) -> Optional[str]:
+        async with semaphore:
+            return await attempt_generate_image(attempt)
+
+    # 开始尝试生成图像
+    for attempt in range(1, max_attempts + 1):
+        needed = n - len(final_download_urls)
+        if needed <= 0:
+            break
+
+        print(f"Attempt {attempt} - 需要生成的图像数量: {needed}")
+
+        # 创建多个任务同时生成所需数量的图像
+        tasks = [asyncio.create_task(generate_with_retries(attempt)) for _ in range(needed)]
+
+        # 等待所有任务完成
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, Exception):
+                print(f"Attempt {attempt} - 任务发生异常: {result}")
+                continue
+            if result:
+                final_download_urls.append(result)
+                print(f"Attempt {attempt} - 收集到下载链接: {result}")
+
+        # 检查是否已经收集到足够的下载链接
+        if len(final_download_urls) >= n:
+            break
+
+    # 检查是否收集到足够的链接
+    if len(final_download_urls) < n:
+        print("已达到最大尝试次数，仍未收集到足够数量的下载链接。")
+        return send_error_response("无法生成足够数量的图像。", status_code=500)
+
+    # 根据 response_format 返回相应的响应
+    data_array = []
+
+    if is_base64_response:
+        for download_url in final_download_urls[:n]:
             try:
-                filename = save_base64_image(image_base64)
-            except ValueError as ve:
-                return send_error_response(f"图像保存失败: {ve}", status_code=500)
-            except Exception as e:
-                return send_error_response(f"图像保存过程中发生错误: {e}", status_code=500)
-            
-            base_url = app.state.base_url
-            accessible_url = f"{base_url}/images/{filename}"
+                image_bytes = await download_image(download_url)
+                if not image_bytes:
+                    print(f"无法从 URL 下载图像: {download_url}")
+                    continue
 
-            # 根据 response_format 返回相应的响应
-            if response_format.lower() == "b64_json":
-                response_json = {
-                    "model": model,  # 返回用户传入的model
-                    "data": [
-                        {
-                            "b64_json": image_base64
-                        }
-                    ]
-                }
-                return JSONResponse(content=response_json, status_code=200)
-            else:
-                # 构建包含可访问URL的响应
-                response_json = {
-                    "model": model,  # 返回用户传入的model
-                    "data": [
-                        {
-                            "url": accessible_url
-                        }
-                    ]
-                }
-                return JSONResponse(content=response_json, status_code=200)
-        except httpx.RequestError as exc:
-            print(f"请求失败: {exc}")
-            return send_error_response(f"请求失败: {str(exc)}", status_code=500)
-        except Exception as exc:
-            print(f"内部服务器错误: {exc}")
-            return send_error_response(f"内部服务器错误: {str(exc)}", status_code=500)
+                image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                data_array.append({
+                    "b64_json": image_base64
+                })
+            except Exception as e:
+                print(f"处理图像时发生错误: {e}")
+                continue
+    else:
+        for download_url in final_download_urls[:n]:
+            data_array.append({
+                "url": download_url
+            })
+
+    # 如果收集的 URL 数量不足 n，则通过复制现有的 URL 来填充
+    while len(data_array) < n and len(data_array) > 0:
+        for item in data_array.copy():
+            if len(data_array) >= n:
+                break
+            data_array.append(item)
+
+    # 构建最终响应
+    response_json = {
+        "created": int(datetime.now(timezone.utc).timestamp()),
+        "data": data_array
+    }
+
+    # 如果data_array为空，返回错误
+    if not data_array:
+        return send_error_response("无法生成图像。", status_code=500)
+
+    # 返回响应
+    return JSONResponse(content=response_json, status_code=200)
 
 @app.get("/v1/models", response_class=JSONResponse)
 async def get_models():
