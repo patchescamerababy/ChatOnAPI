@@ -461,7 +461,6 @@ async def images_generations(request: Request):
     print(f"Response Format: {response_format}")
     print(f"Number of images to generate (n): {n}")
     print(f"Size: {size}")
-    print(f"Model: {model}")
 
     # 设置最大尝试次数为 2 * n
     max_attempts = 2 * n
@@ -480,7 +479,7 @@ async def images_generations(request: Request):
                 "function_image_gen": True,
                 "function_web_search": True,
                 "image_aspect_ratio": "1:1",  # 图片比例可选：1:1/9:19/16:9/4:3
-                "image_style": "anime",  # 固定 image_style，可根据需要调整
+                "image_style": "photographic",  # 固定 image_style，可根据需要调整
                 "max_tokens": 8000,
                 "n": 1,  # 每次请求生成一张图像
                 "messages": [
