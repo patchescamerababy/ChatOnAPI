@@ -30,12 +30,19 @@ Demo👇有限试用、需要提供任意authorization，均支持联网。如�
 
   
 
-示例（model字段无意义，仅为占位）
+示例（这里model、style字段无意义，仅为占位）
 
 	curl --request POST 'https://api-chaton.pages.dev/v1/images/generations' \
 	--header 'Content-Type: application/json' \
 	--header "Authorization: 123" \
 	--data '{"prompt":"girl","response_format":"b64_json","model":"gpt-4o","style":"vivid"}'
+ 
+或者
+
+ 	curl --request POST 'https://api-chaton.pages.dev/v1/images/generations' \
+	--header 'Content-Type: application/json' \
+	--header "Authorization: 123" \
+	--data '{"model": "gpt-4o", "prompt": "girl", "n": 1, "size": "1024x1024"}'
   
 本项目核心是解决其内部算法Bearer生成逻辑
 
