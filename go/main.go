@@ -230,7 +230,9 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 						continue
 					} else {
 						message["content"] = contentStr
+						log.Printf("Ss", "__________________________________________________________")
 						log.Printf("保留的内容: %s\n", contentStr)
+						log.Printf("Ss", "__________________________________________________________")
 					}
 				default:
 					// Skip unexpected types
@@ -280,7 +282,7 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	modifiedRequestBody := string(modifiedRequestBodyBytes)
-	log.Printf("修改后的请求 JSON: %s\n", modifiedRequestBody)
+	//log.Printf("修改后的请求 JSON: %s\n", modifiedRequestBody)
 
 	// Generate Bearer Token
 	tmpToken, err := bearerGenerator.GetBearer(modifiedRequestBody)
@@ -366,7 +368,7 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusBadRequest, "缺少必需的字段: prompt")
 		return
 	}
-	responseFormat, _ := getString(userInput, "response_format", "b64_json")
+	responseFormat, _ := getString(userInput, "response_format", "")
 	responseFormat = strings.TrimSpace(responseFormat)
 
 	fmt.Printf("Prompt: %s\n", prompt)
@@ -428,12 +430,6 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle SSE stream and process image
-	handleTextToImageResponse(w, resp, responseFormat)
-}
-
-// handleTextToImageResponse processes the response from the external API for /v1/images/generations
-func handleTextToImageResponse(w http.ResponseWriter, resp *http.Response, responseFormat string) {
-	// Initialize a buffer to collect SSE data
 	var urlBuilder strings.Builder
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -502,19 +498,20 @@ func handleTextToImageResponse(w http.ResponseWriter, resp *http.Response, respo
 
 	log.Printf("Final Download URL: %s\n", finalDownloadUrl)
 
-	// Step 6: Download the image
-	imageBytes, err := downloadImage(finalDownloadUrl)
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "无法从 URL 下载图像。")
-		return
-	}
-
-	// Step 7: Convert image to Base64
-	imageBase64 := base64.StdEncoding.EncodeToString(imageBytes)
-
-	// Step 8: Respond based on response_format
+	// Step 6: Prepare the response based on response_format
 	if strings.EqualFold(responseFormat, "b64_json") {
+		// Download the image
+		imageBytes, err := downloadImage(finalDownloadUrl)
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, "无法从 URL 下载图像。")
+			return
+		}
+
+		// Convert image to Base64
+		imageBase64 := base64.StdEncoding.EncodeToString(imageBytes)
+
 		responseJson := map[string]interface{}{
+			"created": time.Now().Unix(),
 			"data": []interface{}{
 				map[string]interface{}{
 					"b64_json": imageBase64,
@@ -525,13 +522,22 @@ func handleTextToImageResponse(w http.ResponseWriter, resp *http.Response, respo
 		responseBody, _ := json.Marshal(responseJson)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, err := w.Write(responseBody)
-		if err != nil {
-			return
-		}
+		w.Write(responseBody)
 	} else {
-		// Handle other response_format if needed
-		sendError(w, http.StatusBadRequest, fmt.Sprintf("不支持的 response_format: %s", responseFormat))
+		// Return the URL directly
+		responseJson := map[string]interface{}{
+			"created": time.Now().Unix(),
+			"data": []interface{}{
+				map[string]interface{}{
+					"url": finalDownloadUrl,
+				},
+			},
+		}
+
+		responseBody, _ := json.Marshal(responseJson)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(responseBody)
 	}
 }
 
