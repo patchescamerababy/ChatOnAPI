@@ -15,7 +15,6 @@ public class ModelsHandler implements HttpHandler {
     static {
         models.add(new JSONObject().put("id", "gpt-4o").put("object", "model"));
         models.add(new JSONObject().put("id", "gpt-4o-mini").put("object", "model"));
-        models.add(new JSONObject().put("id", "claude-3-5-sonnet").put("object", "model"));
         models.add(new JSONObject().put("id", "claude").put("object", "model"));
     }
     @Override
