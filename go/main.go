@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -29,7 +30,7 @@ import (
 
 // Constants and Global Variables
 var (
-	models       = []string{"gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude"}
+	models       = []string{"gpt-4o", "gpt-4o-mini", "claude"}
 	baseURL      = "http://localhost"
 	initialPort  = 8080 // 默认初始端口设置为8080，避免需要root权限
 	baseURLMutex sync.RWMutex
@@ -44,7 +45,10 @@ func sendError(w http.ResponseWriter, statusCode int, message string) {
 	w.WriteHeader(statusCode)
 	resp := map[string]string{"error": message}
 	jsonResp, _ := json.Marshal(resp)
-	w.Write(jsonResp)
+	_, err := w.Write(jsonResp)
+	if err != nil {
+		return
+	}
 }
 
 // Utility function to build HTTP requests to external API
@@ -56,7 +60,7 @@ func buildHttpRequest(modifiedRequestBody string, tmpToken []string) (*http.Requ
 	req.Header.Set("Date", tmpToken[1])
 	req.Header.Set("Client-time-zone", "-05:00")
 	req.Header.Set("Authorization", tmpToken[0])
-	req.Header.Set("User-Agent", "ChatOn_Android/1.53.502")
+	req.Header.Set("User-Agent", "ChatOn_Android/1.54.517")
 	req.Header.Set("Accept-Language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
@@ -83,7 +87,10 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
 		html := `<html><head><title>欢迎使用API</title></head><body><h1>欢迎使用API</h1><p>此 API 用于与 ChatGPT / Claude 模型交互。您可以发送消息给模型并接收响应。</p></body></html>`
-		w.Write([]byte(html))
+		_, err := w.Write([]byte(html))
+		if err != nil {
+			return
+		}
 		return
 	}
 
@@ -100,7 +107,12 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusBadRequest, "无法读取请求体")
 		return
 	}
-	defer r.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(r.Body)
 
 	// Parse JSON
 	var requestJson map[string]interface{}
@@ -258,7 +270,7 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !modelValid {
-		model = "claude-3-5-sonnet"
+		model = "gpt-4o"
 	}
 
 	// Build new request JSON
@@ -304,7 +316,12 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusInternalServerError, "请求外部API时发生错误")
 		return
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		sendError(w, resp.StatusCode, fmt.Sprintf("API 错误: %d", resp.StatusCode))
@@ -351,7 +368,12 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusBadRequest, "无法读取请求体")
 		return
 	}
-	defer r.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(r.Body)
 
 	// Parse JSON
 	var userInput map[string]interface{}
@@ -422,7 +444,12 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusInternalServerError, "请求外部API时发生错误")
 		return
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		sendError(w, resp.StatusCode, fmt.Sprintf("API 错误: %d", resp.StatusCode))
@@ -522,7 +549,10 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 		responseBody, _ := json.Marshal(responseJson)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(responseBody)
+		_, err = w.Write(responseBody)
+		if err != nil {
+			return
+		}
 	} else {
 		// Return the URL directly
 		responseJson := map[string]interface{}{
@@ -537,7 +567,10 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 		responseBody, _ := json.Marshal(responseJson)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(responseBody)
+		_, err := w.Write(responseBody)
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -603,7 +636,10 @@ func handleNormalResponse(w http.ResponseWriter, resp *http.Response, model stri
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(responseBody)
+	_, err = w.Write(responseBody)
+	if err != nil {
+		return
+	}
 }
 
 // Handle Image Stream Response
@@ -626,7 +662,10 @@ func handleImageStreamResponse(w http.ResponseWriter, resp *http.Response) {
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimSpace(line[6:])
 			if data == "[DONE]" {
-				w.Write([]byte(line + "\n"))
+				_, err := w.Write([]byte(line + "\n"))
+				if err != nil {
+					return
+				}
 				flusher.Flush()
 				break
 			}
@@ -658,7 +697,10 @@ func handleImageStreamResponse(w http.ResponseWriter, resp *http.Response) {
 								"system_fingerprint": "fp_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12],
 							}
 							newSseLine, _ := json.Marshal(newSseJson)
-							w.Write([]byte("data: " + string(newSseLine) + "\n\n"))
+							_, err := w.Write([]byte("data: " + string(newSseLine) + "\n\n"))
+							if err != nil {
+								return
+							}
 							flusher.Flush()
 						}
 						if images, exists := delta["images"].([]interface{}); exists {
@@ -684,7 +726,10 @@ func handleImageStreamResponse(w http.ResponseWriter, resp *http.Response) {
 										"system_fingerprint": "fp_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12],
 									}
 									newSseLine, _ := json.Marshal(newSseJson)
-									w.Write([]byte("data: " + string(newSseLine) + "\n\n"))
+									_, err := w.Write([]byte("data: " + string(newSseLine) + "\n\n"))
+									if err != nil {
+										return
+									}
 									flusher.Flush()
 								}
 							}
@@ -716,7 +761,10 @@ func handleStreamResponse(w http.ResponseWriter, resp *http.Response) {
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimSpace(line[6:])
 			if data == "[DONE]" {
-				w.Write([]byte(line + "\n"))
+				_, err := w.Write([]byte(line + "\n"))
+				if err != nil {
+					return
+				}
 				flusher.Flush()
 				break
 			}
@@ -748,7 +796,10 @@ func handleStreamResponse(w http.ResponseWriter, resp *http.Response) {
 								"system_fingerprint": "fp_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12],
 							}
 							newSseLine, _ := json.Marshal(newSseJson)
-							w.Write([]byte("data: " + string(newSseLine) + "\n\n"))
+							_, err := w.Write([]byte("data: " + string(newSseLine) + "\n\n"))
+							if err != nil {
+								return
+							}
 							flusher.Flush()
 						}
 					}
@@ -832,7 +883,10 @@ func handleVisionNormalResponse(w http.ResponseWriter, resp *http.Response, mode
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(responseBody)
+	_, err = w.Write(responseBody)
+	if err != nil {
+		return
+	}
 }
 
 // Helper functions to extract types from interface{}
@@ -928,7 +982,12 @@ func fetchGetUrlFromStorage(storageUrl string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("获取 storage URL 失败，状态码: %d", resp.StatusCode)
@@ -1017,7 +1076,10 @@ func createHTTPServer(initialPort int) (*http.Server, int, error) {
 		mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o","object":"model"},{"id":"gpt-4o-mini","object":"model"},{"id":"claude-3-5-sonnet","object":"model"},{"id":"claude","object":"model"}]}`))
+			_, err := w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o","object":"model"},{"id":"gpt-4o-mini","object":"model"},{"id":"claude","object":"model"}]}`))
+			if err != nil {
+				return
+			}
 		})
 		// Serve /images/ directory
 		fileServer := http.FileServer(http.Dir("./images"))
@@ -1103,6 +1165,7 @@ func main() {
 	log.Printf("最终的 Base URL: %s\n", baseURL)
 	baseURLMutex.RUnlock()
 
+	// 优雅关闭服务器的信号处理
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
