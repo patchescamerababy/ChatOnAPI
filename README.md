@@ -11,7 +11,7 @@
 
 可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
-Demo👇有限试用、需要提供任意authorization，均支持联网。如果传入的model不正确自动回落至claude 3.5 sonnet
+Demo👇有限试用、需要提供任意authorization，均支持联网。如果传入的model不正确自动回落至gpt-4o
 
 对话：支持上传图片。已手动屏蔽在此路径的画图请求，因为他们返回的URL本质不可访问的，需要由服务端提取路径、替换URL再下载
 
