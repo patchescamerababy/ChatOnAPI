@@ -44,9 +44,6 @@ Demo👇有限试用、需要提供任意authorization，均支持联网。如�
 	--header "Authorization: 123" \
 	--data '{"prompt": "girl", "model": "gpt-4o", "n": 1, "size": "1024x1024"}'
   
-本项目核心是解决其内部算法Bearer生成逻辑
-
-
 支持的模型
 
 gpt-4o✅
@@ -73,8 +70,6 @@ TextToImage:（仅限于 gpt-4o 和 gpt-4o-mini 模型可画图，目前固定�
 	/v1/images/generations
 
 ImageToText：可传直链，如果传base64编码的图片需要部署在公网
-
-已用Python实现(未提供bearer_token.py)，最大并发量比Java实现的要低，
 
 Usage:
 
