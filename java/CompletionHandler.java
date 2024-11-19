@@ -19,9 +19,9 @@ import static utils.utils.sendError;
  */
 public class CompletionHandler implements HttpHandler {
     // 支持的模型列表
-    public final String[] models = {"gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude"};
+    public final String[] models = {"gpt-4o", "gpt-4o-mini", "claude"};
     private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newFixedThreadPool(10);
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
@@ -41,7 +41,7 @@ public class CompletionHandler implements HttpHandler {
 
         if ("GET".equals(requestMethod)) {
             // 返回欢迎页面
-            String response = "<html><head><title>欢迎使用 ChatGPT API</title></head><body><h1>欢迎使用 ChatGPT API</h1><p>此 API 用于与 ChatGPT 模型交互。您可以发送消息给模型并接收响应。</p></body></html>";
+            String response = "<html><head><title>欢迎使用API</title></head><body><h1>欢迎使用API</h1><p>此 API 用于与 ChatGPT / Claude 模型交互。您可以发送消息给模型并接收响应。</p></body></html>";
 
             exchange.getResponseHeaders().add("Content-Type", "text/html");
             exchange.sendResponseHeaders(200, response.getBytes(StandardCharsets.UTF_8).length);
@@ -60,6 +60,18 @@ public class CompletionHandler implements HttpHandler {
         // 异步处理请求
         CompletableFuture.runAsync(() -> {
             try {
+                //读取请求头
+                Headers requestHeaders = exchange.getRequestHeaders();
+                String Authorization = requestHeaders.getFirst("Authorization");
+                //截取Bearer 后的内容
+                try{
+                    String ReceivedToken = Authorization.substring(7);
+                }catch (StringIndexOutOfBoundsException e){
+
+                    e.printStackTrace();
+                }
+
+
                 // 读取请求体
                 InputStream is = exchange.getRequestBody();
                 String requestBody = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))
@@ -67,7 +79,8 @@ public class CompletionHandler implements HttpHandler {
                         .reduce("", (acc, line) -> acc + line);
 
                 JSONObject requestJson = new JSONObject(requestBody);
-                System.out.println("接收到的补全请求 JSON: " + requestJson.toString());
+
+                //System.out.println("接收到的补全请求 JSON: " + requestJson.toString());
 
                 StringBuilder contentBuilder = new StringBuilder();
                 JSONArray messages = requestJson.optJSONArray("messages");
@@ -115,9 +128,25 @@ public class CompletionHandler implements HttpHandler {
                                                 } else if (dataUrl.startsWith("data:image/jpeg") || dataUrl.startsWith("data:image/jpg")) {
                                                     extension = "jpg";
                                                 }
+                                                //按时间搜索一分钟前图片并删除
+                                                //删除Image目录所有文件
+                                                File imagesDir = new File("images");
+//                                                if (imagesDir.exists()) {
+//                                                    File[] files = imagesDir.listFiles();
+//                                                    //按时间搜索
+//                                                    for (File file : files) {
+//                                                        if (file.isFile()) {
+//                                                            long time = file.lastModified();
+//                                                            long now = System.currentTimeMillis();
+//                                                            if (now - time > 60000) {
+//                                                                file.delete();
+//                                                            }
+//                                                        }
+//                                                    }
+//                                                }
                                                 imageFilename = uuid + "." + extension;
                                                 // 保存图片到 images 目录
-                                                File imagesDir = new File("images");
+
                                                 if (!imagesDir.exists()) {
                                                     imagesDir.mkdir();
                                                 }
@@ -152,6 +181,7 @@ public class CompletionHandler implements HttpHandler {
                                         }
                                     }
                                 }
+
                                 // 处理完 contentArray 后，设置消息的 content 字段
                                 String extractedContent = contentBuilder.toString().trim();
                                 if (extractedContent.isEmpty() && !hasImage) {
@@ -196,12 +226,12 @@ public class CompletionHandler implements HttpHandler {
                     }
                 }
                 if (!modelValid) {
-                    model = "claude-3-5-sonnet";
+                    model = "gpt-4o";
                 }
 
                 // 构建新的请求 JSON，替换相关内容
                 JSONObject newRequestJson = new JSONObject();
-                newRequestJson.put("function_image_gen", true);
+                newRequestJson.put("function_image_gen", false);
                 newRequestJson.put("function_web_search", true);
                 newRequestJson.put("max_tokens", maxTokens);
                 newRequestJson.put("model", model);
