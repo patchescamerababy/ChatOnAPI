@@ -53,9 +53,9 @@ gpt-4o✅
 
 gpt-4o-mini✅
 
-claude 3.5 sonnet✅(claude-3-5-sonnet)，估计是0620
+~~claude 3.5 sonnet✅(claude-3-5-sonnet)~~（已下线，暂不可用）
 
-~~claude Haiku✅(claude)~~（已下线，暂不可用）
+claude Haiku✅(claude)
 
 几乎无限使用，几乎没有频率限制，他们的API对max_tokens不作判断要求，推测在8000左右。 适合有高频请求的需求
 
