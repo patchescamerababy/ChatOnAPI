@@ -25,8 +25,8 @@ from fastapi.staticfiles import StaticFiles
 
 from bearer_token import BearerTokenGenerator
 
-# 模型列表
-MODELS = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude"]
+# 模型列表（根据需求，可自行调整）
+MODELS = ["gpt-4o", "gpt-4o-mini", "claude"]
 
 # 默认端口
 INITIAL_PORT = 8080
@@ -357,6 +357,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
+                # CORS头已通过中间件处理，无需在这里重复添加
             },
         )
     else:
@@ -461,7 +462,7 @@ async def images_generations(request: Request):
     print(f"Response Format: {response_format}")
     print(f"Number of images to generate (n): {n}")
     print(f"Size: {size}")
-
+    
     # 设置最大尝试次数为 2 * n
     max_attempts = 2 * n
     print(f"Max Attempts: {max_attempts}")
@@ -669,7 +670,6 @@ async def get_models():
         "data": [
             {"id": "gpt-4o", "object": "model"},
             {"id": "gpt-4o-mini", "object": "model"},
-            {"id": "claude-3-5-sonnet", "object": "model"},
             {"id": "claude", "object": "model"}
         ]
     }
