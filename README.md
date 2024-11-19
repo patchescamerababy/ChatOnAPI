@@ -95,6 +95,6 @@ java -jar 80 https://example.com
 
 例如会上传https://api-chaton.pages.dev/images/[uuid].png，则填入的base_url为https://api-chaton.pages.dev
 
-Bearer核心算法可联系📧patches.camera_0m@icloud.com有偿获取，四位数，测请楚再考虑
+Bearer核心算法可联系📧patches.camera_0m@icloud.com获取
 
 
