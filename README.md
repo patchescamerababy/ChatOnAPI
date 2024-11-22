@@ -43,7 +43,9 @@ Demo👇有限试用、需要提供任意authorization，均支持联网。如�
 	--header 'Content-Type: application/json' \
 	--header "Authorization: 123" \
 	--data '{"prompt": "girl", "model": "gpt-4o", "n": 1, "size": "1024x1024"}'
-  
+
+由于有CF盾，请求频繁会有429
+
 支持的模型
 
 gpt-4o✅
