@@ -50,7 +50,7 @@ gpt-4o✅
 
 gpt-4o-mini✅
 
-~~claude 3.5 sonnet✅(claude-3-5-sonnet)~~（已下线，暂不可用）
+claude 3.5 sonnet✅(claude-3-5-sonnet) (又可以使用了)
 
 claude Haiku✅(claude)
 
