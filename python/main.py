@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from bearer_token import BearerTokenGenerator
 
 # 模型列表（根据需求，可自行调整）
-MODELS = ["gpt-4o", "gpt-4o-mini", "claude"]
+MODELS = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude"]
 
 # 默认端口
 INITIAL_PORT = 8080
@@ -307,6 +307,25 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     }
 
     if is_stream:
+        import uuid
+        from datetime import datetime, timezone
+
+        # 定义 should_filter_out 函数
+        def should_filter_out(json_data):
+            if 'ping' in json_data:
+                return True
+            if 'data' in json_data:
+                data = json_data['data']
+                if 'analytics' in data:
+                    return True
+                if 'operation' in data and 'message' in data:
+                    return True
+            return False
+
+        # 定义 generate_id 函数
+        def generate_id():
+            return uuid.uuid4().hex[:24]
+
         # 流式响应处理
         async def event_generator():
             async with httpx.AsyncClient(timeout=None) as client_stream:
@@ -321,32 +340,54 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                                     break
                                 try:
                                     sse_json = json.loads(data)
-                                    if "choices" in sse_json:
-                                        for choice in sse_json["choices"]:
-                                            delta = choice.get("delta", {})
-                                            content = delta.get("content")
-                                            if content:
-                                                new_sse_json = {
-                                                    "choices": [
-                                                        {
-                                                            "index": choice.get("index", 0),
-                                                            "delta": {"content": content},
-                                                        }
-                                                    ],
-                                                    "created": sse_json.get(
-                                                        "created", int(datetime.now(timezone.utc).timestamp())
-                                                    ),
-                                                    "id": sse_json.get(
-                                                        "id", str(uuid.uuid4())
-                                                    ),
-                                                    "model": model,  # 使用用户传入的model
-                                                    "system_fingerprint": f"fp_{uuid.uuid4().hex[:12]}",
-                                                }
-                                                new_sse_line = f"data: {json.dumps(new_sse_json, ensure_ascii=False)}\n\n"
-                                                yield new_sse_line
-                                except json.JSONDecodeError:
-                                    print("JSON解析错误")
+                                    
+                                    # 判断是否需要过滤
+                                    if should_filter_out(sse_json):
+                                        continue
+
+                                    # 处理包含 web sources 的消息
+                                    if 'data' in sse_json and 'web' in sse_json['data']:
+                                        web_data = sse_json['data']['web']
+                                        if 'sources' in web_data:
+                                            sources = web_data['sources']
+                                            urls_list = []
+                                            for source in sources:
+                                                if 'url' in source:
+                                                    urls_list.append(source['url'])
+                                            urls_content = '\n\n'.join(urls_list)
+                                            print(f"从 API 接收到的内容: {urls_content}")
+                                            # 构造新的 SSE 消息，填入 content 字段
+                                            new_sse_json = {
+                                                "id": generate_id(),
+                                                "object": "chat.completion.chunk",
+                                                "created": int(datetime.now(timezone.utc).timestamp()),
+                                                "model": sse_json.get("model", "gpt-4o"),
+                                                "choices": [
+                                                    {
+                                                        "delta": {"content": "\n" + urls_content + "\n"},
+                                                        "index": 0,
+                                                        "finish_reason": None
+                                                    }
+                                                ]
+                                            }
+                                            new_sse_line = f"data: {json.dumps(new_sse_json, ensure_ascii=False)}\n\n"
+                                            yield new_sse_line
+                                    else:
+                                        # 尝试打印内容
+                                        if 'choices' in sse_json:
+                                            for choice in sse_json['choices']:
+                                                delta = choice.get('delta', {})
+                                                content = delta.get('content')
+                                                if content:
+                                                    print(content, end='')
+                                        # 直接转发其他消息
+                                        yield f"data: {data}\n\n"
+                                except json.JSONDecodeError as e:
+                                    print(f"JSON解析错误: {e}")
                                     continue
+                            else:
+                                # 忽略不以 "data: " 开头的行
+                                continue
                 except httpx.RequestError as exc:
                     print(f"外部API请求失败: {exc}")
                     yield f"data: {{\"error\": \"外部API请求失败: {str(exc)}\"}}\n\n"
@@ -670,6 +711,7 @@ async def get_models():
         "data": [
             {"id": "gpt-4o", "object": "model"},
             {"id": "gpt-4o-mini", "object": "model"},
+            {"id": "claude-3-5-sonnet", "object": "model"},
             {"id": "claude", "object": "model"}
         ]
     }
