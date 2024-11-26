@@ -19,7 +19,7 @@ import static utils.utils.sendError;
  */
 public class CompletionHandler implements HttpHandler {
     // 支持的模型列表
-    public final String[] models = {"gpt-4o", "gpt-4o-mini", "claude"};
+    public final String[] models = {"gpt-4o", "gpt-4o-mini", "claude","claude-3-haiku","claude-3-5-sonnet"};
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ExecutorService executor = Executors.newFixedThreadPool(10);
 
@@ -56,16 +56,22 @@ public class CompletionHandler implements HttpHandler {
             exchange.sendResponseHeaders(405, -1);
             return;
         }
-
+//        boolean requestAllowed = Main.rateLimiter.tryAcquire();
+//        if (!requestAllowed) {
+//            sendError(exchange, "请求过于频繁，请稍后再试。", 429);
+//            return;
+//        }
         // 异步处理请求
         CompletableFuture.runAsync(() -> {
             try {
+
                 //读取请求头
                 Headers requestHeaders = exchange.getRequestHeaders();
                 String Authorization = requestHeaders.getFirst("Authorization");
                 //截取Bearer 后的内容
                 try{
                     String ReceivedToken = Authorization.substring(7);
+
                 }catch (StringIndexOutOfBoundsException e){
 
                     e.printStackTrace();
@@ -238,14 +244,14 @@ public class CompletionHandler implements HttpHandler {
                 if (hasImage) {
                     newRequestJson.put("source", "chat/image_upload");
                 } else {
-                    newRequestJson.put("source", "chat/pro");
+                    newRequestJson.put("source", "chat/free");
                 }
                 newRequestJson.put("temperature", temperature);
                 newRequestJson.put("top_p", topP);
                 newRequestJson.put("messages", messages);
 
                 String modifiedRequestBody = newRequestJson.toString();
-                System.out.println("修改后的请求 JSON: " + newRequestJson.toString());
+//                System.out.println("修改后的请求 JSON: " + newRequestJson.toString());
                 // 获取一次性 Bearer Token
                 String[] tmpToken = BearerTokenGenerator.GetBearer(modifiedRequestBody);
                 // 使用通用的 HttpRequest 构建方法
@@ -318,7 +324,7 @@ public class CompletionHandler implements HttpHandler {
                                                     // 处理 'content'
                                                     if (delta.has("content")) {
                                                         String content = delta.getString("content");
-
+                                                        System.out.print(content);
                                                         // 构建新的 SSE JSON
                                                         JSONObject newSseJson = new JSONObject();
                                                         JSONArray newChoices = new JSONArray();
@@ -364,7 +370,7 @@ public class CompletionHandler implements HttpHandler {
 
                                                             // 假设 data 是可访问的 URL
                                                             String content = "[Image at " + imageData + "]";
-
+                                                            System.out.print(content);
                                                             JSONObject newSseJson = new JSONObject();
                                                             JSONArray newChoices = new JSONArray();
                                                             JSONObject newChoice = new JSONObject();
@@ -474,7 +480,7 @@ public class CompletionHandler implements HttpHandler {
 
                         // 构建 OpenAI API 风格的响应 JSON
                         JSONObject openAIResponse = new JSONObject();
-                        openAIResponse.put("id", "chatcmpl-" + UUID.randomUUID().toString());
+                        openAIResponse.put("id", "chatcmpl-" + UUID.randomUUID());
                         openAIResponse.put("object", "chat.completion");
                         openAIResponse.put("created", Instant.now().getEpochSecond());
                         openAIResponse.put("model", model);
@@ -488,12 +494,12 @@ public class CompletionHandler implements HttpHandler {
 
                         // 构建包含图片 URL 的 assistant 内容
                         StringBuilder assistantContent = new StringBuilder();
-                        assistantContent.append(contentBuilder.toString());
+                        assistantContent.append(contentBuilder);
                         for (String imageUrl : imageUrls) {
                             assistantContent.append("\n[Image: ").append(imageUrl).append("]");
                         }
                         messageObject.put("content", assistantContent.toString());
-                        System.out.println("从 API 接收到的内容: " + assistantContent.toString());
+                        System.out.println("从 API 接收到的内容: " + assistantContent);
 
                         choiceObject.put("message", messageObject);
                         choiceObject.put("finish_reason", "stop");
@@ -543,73 +549,97 @@ public class CompletionHandler implements HttpHandler {
 
                         try (OutputStream os = exchange.getResponseBody()) {
                             response.body().forEach(line -> {
-                                if (line.startsWith("data: ")) {
-                                    String data = line.substring(6).trim();
-                                    if (data.equals("[DONE]")) {
-                                        try {
-                                            // 转发 [DONE] 信号
-                                            os.write((line + "\n").getBytes(StandardCharsets.UTF_8));
-                                            os.flush();
-                                        } catch (IOException e) {
-                                            e.printStackTrace();
-                                        }
+//                                System.out.println("原始行: " + line);
+                                try {
+                                    // 只处理以 "data: " 开头的行
+                                    if (!line.startsWith("data: ")) {
                                         return;
                                     }
 
-                                    try {
-                                        JSONObject sseJson = new JSONObject(data);
+                                    String data = line.substring(6).trim();
+                                    if (data.equals("[DONE]")) {
+                                        // 转发 [DONE] 信号
+                                        os.write((line + "\n\n").getBytes(StandardCharsets.UTF_8));
+                                        os.flush();
+                                        return;
+                                    }
 
-                                        // 检查是否包含 'choices' 数组
-                                        if (sseJson.has("choices")) {
-                                            JSONArray choices = sseJson.getJSONArray("choices");
-                                            for (int i = 0; i < choices.length(); i++) {
-                                                JSONObject choice = choices.getJSONObject(i);
-                                                JSONObject delta = choice.optJSONObject("delta");
-                                                if (delta != null && delta.has("content")) {
-                                                    String content = delta.getString("content");
+                                    JSONObject json = new JSONObject(data);
 
-                                                    // 重新构建 SSE JSON，仅包含 'content'
-                                                    JSONObject newSseJson = new JSONObject();
-                                                    JSONArray newChoices = new JSONArray();
-                                                    JSONObject newChoice = new JSONObject();
-                                                    newChoice.put("index", choice.optInt("index", i));
+                                    // 过滤掉特定类型的消息
+                                    if (shouldFilterOut(json)) {
+                                        return;
+                                    }
 
-                                                    // 添加 'content' 字段
-                                                    JSONObject newDelta = new JSONObject();
-                                                    newDelta.put("content", content);
-                                                    newChoice.put("delta", newDelta);
-
-                                                    newChoices.put(newChoice);
-                                                    newSseJson.put("choices", newChoices);
-
-                                                    if (sseJson.has("created")) {
-                                                        newSseJson.put("created", sseJson.getLong("created"));
-                                                    } else {
-                                                        newSseJson.put("created", Instant.now().getEpochSecond());
+                                    // 处理包含 web sources 的消息
+                                    if (json.has("data") && json.getJSONObject("data").has("web")) {
+                                        JSONObject webData = json.getJSONObject("data").getJSONObject("web");
+                                        if (webData.has("sources")) {
+                                            JSONArray sources = webData.getJSONArray("sources");
+                                            StringBuilder urlsList = new StringBuilder();
+                                            for (int i = 0; i < sources.length(); i++) {
+                                                JSONObject source = sources.getJSONObject(i);
+                                                if (source.has("url")) {
+                                                    if (!urlsList.isEmpty()) {
+                                                        urlsList.append("\n\n");
                                                     }
-
-                                                    if (sseJson.has("id")) {
-                                                        newSseJson.put("id", sseJson.getString("id"));
-                                                    } else {
-                                                        newSseJson.put("id", UUID.randomUUID().toString());
-                                                    }
-
-                                                    newSseJson.put("model", sseJson.optString("model", "gpt-4o"));
-                                                    newSseJson.put("system_fingerprint", "fp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
-
-                                                    // 构建新的 SSE 行
-                                                    String newSseLine = "data: " + newSseJson + "\n\n";
-                                                    os.write(newSseLine.getBytes(StandardCharsets.UTF_8));
-                                                    os.flush();
+                                                    urlsList.append(source.getString("url"));
                                                 }
                                             }
+                                            System.out.println("从 API 接收到的内容: " + urlsList);
+                                            // 构造新的 SSE 消息，填入 content 字段
+                                            JSONObject newJson = new JSONObject();
+                                            newJson.put("id", generateId());
+                                            newJson.put("object", "chat.completion.chunk");
+                                            newJson.put("created", Instant.now().getEpochSecond());
+                                            newJson.put("model", json.optString("model", "gpt-4o"));
+
+                                            JSONArray choices = new JSONArray();
+                                            JSONObject choice = new JSONObject();
+                                            JSONObject delta = new JSONObject();
+                                            delta.put("content", "\n"+urlsList+"\n");
+                                            choice.put("delta", delta);
+                                            choice.put("index", 0);
+                                            choice.put("finish_reason", JSONObject.NULL);
+                                            choices.put(choice);
+
+                                            newJson.put("choices", choices);
+
+                                            // 发送新构造的 SSE 消息
+
+                                            String newLine = "data: " + newJson + "\n\n";
+                                            os.write(newLine.getBytes(StandardCharsets.UTF_8));
+                                            os.flush();
                                         }
-                                    } catch (JSONException e) {
-                                        System.err.println("JSON解析错误: " + e.getMessage());
-                                    } catch (IOException e) {
-                                        System.err.println("响应发送失败: " + e.getMessage());
-                                        e.printStackTrace();
+                                    } else {
+                                        try {
+                                            JSONObject sseJson = new JSONObject(data);
+
+                                            // 检查是否包含 'choices' 数组
+                                            if (sseJson.has("choices")) {
+                                                JSONArray choices = sseJson.getJSONArray("choices");
+                                                for (int i = 0; i < choices.length(); i++) {
+                                                    JSONObject choice = choices.getJSONObject(i);
+                                                    JSONObject delta = choice.optJSONObject("delta");
+                                                    if (delta != null && delta.has("content")) {
+                                                        String content = delta.getString("content");
+                                                        System.out.print(content);
+                                                    }
+                                                }
+                                            }
+
+                                        } catch (JSONException e) {
+                                            System.err.println("JSON解析错误: " + e.getMessage());
+                                        }
+                                        // 直接转发其他消息
+                                        os.write((line + "\n\n").getBytes(StandardCharsets.UTF_8));
+                                        os.flush();
                                     }
+                                } catch (JSONException e) {
+                                    System.err.println("JSON解析错误: " + e.getMessage());
+                                } catch (IOException e) {
+                                    System.err.println("响应发送失败: " + e.getMessage());
+                                    e.printStackTrace();
                                 }
                             });
                         }
@@ -623,6 +653,37 @@ public class CompletionHandler implements HttpHandler {
                     sendError(exchange, "请求失败: " + ex.getMessage());
                     return null;
                 });
+    }
+
+    /**
+     * 判断是否需要过滤掉当前的 SSE 消息
+     *
+     * @param json 解析后的 JSON 对象
+     * @return 如果需要过滤掉则返回 true，否则返回 false
+     */
+    private boolean shouldFilterOut(JSONObject json) {
+        if (json.has("ping")) {
+            return true;
+        }
+        if (json.has("data")) {
+            JSONObject data = json.getJSONObject("data");
+            if (data.has("analytics")) {
+                return true;
+            }
+            if (data.has("operation") && data.has("message")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 生成随机的 ID
+     *
+     * @return 长度为 24 的随机字符串
+     */
+    private String generateId() {
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 24);
     }
 
     /**
@@ -647,6 +708,8 @@ public class CompletionHandler implements HttpHandler {
 
                         // 拼接 content 字段，直到 data: [DONE]
                         StringBuilder contentBuilder = new StringBuilder();
+                        int completionTokens = 0;
+
                         for (String line : sseLines) {
                             if (line.startsWith("data: ")) {
                                 String data = line.substring(6).trim();
@@ -666,6 +729,7 @@ public class CompletionHandler implements HttpHandler {
                                                 if (delta.has("content")) {
                                                     String content = delta.getString("content");
                                                     contentBuilder.append(content);
+                                                    completionTokens += content.length(); // 简单估计 token 数
                                                 }
                                             }
                                         }
@@ -678,7 +742,7 @@ public class CompletionHandler implements HttpHandler {
 
                         // 构建 OpenAI API 风格的响应 JSON
                         JSONObject openAIResponse = new JSONObject();
-                        openAIResponse.put("id", "chatcmpl-" + UUID.randomUUID().toString());
+                        openAIResponse.put("id", "chatcmpl-" + UUID.randomUUID().toString().replace("-", ""));
                         openAIResponse.put("object", "chat.completion");
                         openAIResponse.put("created", Instant.now().getEpochSecond());
                         openAIResponse.put("model", model);
@@ -690,13 +754,41 @@ public class CompletionHandler implements HttpHandler {
                         JSONObject messageObject = new JSONObject();
                         messageObject.put("role", "assistant");
                         messageObject.put("content", contentBuilder.toString());
+                        messageObject.put("refusal", JSONObject.NULL); // 添加 'refusal' 字段
                         System.out.println("从 API 接收到的内容: " + contentBuilder.toString());
 
                         choiceObject.put("message", messageObject);
+                        choiceObject.put("logprobs", JSONObject.NULL); // 添加 'logprobs' 字段
                         choiceObject.put("finish_reason", "stop");
                         choicesArray.put(choiceObject);
 
                         openAIResponse.put("choices", choicesArray);
+
+                        // 添加 'usage' 字段
+                        JSONObject usageObject = new JSONObject();
+                        int promptTokens = 16; // 示例值，可以根据实际计算
+                        usageObject.put("prompt_tokens", promptTokens);
+                        usageObject.put("completion_tokens", completionTokens);
+                        usageObject.put("total_tokens", promptTokens + completionTokens);
+
+                        // 添加 'prompt_tokens_details' 字段
+                        JSONObject promptTokensDetails = new JSONObject();
+                        promptTokensDetails.put("cached_tokens", 0);
+                        promptTokensDetails.put("audio_tokens", 0);
+                        usageObject.put("prompt_tokens_details", promptTokensDetails);
+
+                        // 添加 'completion_tokens_details' 字段
+                        JSONObject completionTokensDetails = new JSONObject();
+                        completionTokensDetails.put("reasoning_tokens", 0);
+                        completionTokensDetails.put("audio_tokens", 0);
+                        completionTokensDetails.put("accepted_prediction_tokens", 0);
+                        completionTokensDetails.put("rejected_prediction_tokens", 0);
+                        usageObject.put("completion_tokens_details", completionTokensDetails);
+
+                        openAIResponse.put("usage", usageObject);
+
+                        // 添加 'system_fingerprint' 字段
+                        openAIResponse.put("system_fingerprint", "fp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
 
                         exchange.getResponseHeaders().add("Content-Type", "application/json");
                         String responseBody = openAIResponse.toString();
