@@ -30,7 +30,7 @@ import (
 
 // Constants and Global Variables
 var (
-	models       = []string{"gpt-4o", "gpt-4o-mini", "claude"}
+	models       = []string{"gpt-4o", "gpt-4o-mini", "claude", "claude-3-5-sonnet"}
 	baseURL      = "http://localhost"
 	initialPort  = 8080 // 默认初始端口设置为8080，避免需要root权限
 	baseURLMutex sync.RWMutex
@@ -60,7 +60,7 @@ func buildHttpRequest(modifiedRequestBody string, tmpToken []string) (*http.Requ
 	req.Header.Set("Date", tmpToken[1])
 	req.Header.Set("Client-time-zone", "-05:00")
 	req.Header.Set("Authorization", tmpToken[0])
-	req.Header.Set("User-Agent", "ChatOn_Android/1.54.517")
+	req.Header.Set("User-Agent", "ChatOn_Android/1.53.457")
 	req.Header.Set("Accept-Language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
@@ -242,9 +242,7 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 						continue
 					} else {
 						message["content"] = contentStr
-						log.Printf("Ss", "__________________________________________________________")
 						log.Printf("保留的内容: %s\n", contentStr)
-						log.Printf("Ss", "__________________________________________________________")
 					}
 				default:
 					// Skip unexpected types
@@ -400,7 +398,7 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 		"function_image_gen":  true,
 		"function_web_search": true,
 		"image_aspect_ratio":  "1:1",
-		"image_style":         "photographic", // 固定 image_style
+		"image_style":         "anime", // 固定 image_style
 		"max_tokens":          8000,
 		"messages": []interface{}{
 			map[string]interface{}{
@@ -575,6 +573,7 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handle Normal Response
+// handleNormalResponse 处理非流式响应并构建 OpenAI 风格的 JSON 响应
 func handleNormalResponse(w http.ResponseWriter, resp *http.Response, model string) {
 	bodyBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -582,30 +581,35 @@ func handleNormalResponse(w http.ResponseWriter, resp *http.Response, model stri
 		return
 	}
 
-	// Parse SSE lines
-	lines := bytes.Split(bodyBytes, []byte("\n"))
+	// 解析 SSE 行
+	scanner := bufio.NewScanner(bytes.NewReader(bodyBytes))
 	var contentBuilder strings.Builder
+	completionTokens := 0
 
-	for _, line := range lines {
-		if bytes.HasPrefix(line, []byte("data: ")) {
-			data := strings.TrimSpace(string(line[6:]))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimSpace(line[6:])
 			if data == "[DONE]" {
 				break
 			}
+
 			var sseJson map[string]interface{}
 			if err := json.Unmarshal([]byte(data), &sseJson); err != nil {
 				log.Println("JSON解析错误:", err)
 				continue
 			}
+
+			// 检查是否包含 'choices' 数组
 			if choices, exists := sseJson["choices"].([]interface{}); exists {
 				for _, choice := range choices {
-					choiceMap, ok := choice.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					if delta, exists := choiceMap["delta"].(map[string]interface{}); exists {
-						if content, exists := delta["content"].(string); exists {
-							contentBuilder.WriteString(content)
+					if choiceMap, ok := choice.(map[string]interface{}); ok {
+						if delta, exists := choiceMap["delta"].(map[string]interface{}); exists {
+							if content, exists := delta["content"].(string); exists {
+								contentBuilder.WriteString(content)
+								completionTokens += len(content) // 简单估计 token 数
+								print(content)
+							}
 						}
 					}
 				}
@@ -613,9 +617,15 @@ func handleNormalResponse(w http.ResponseWriter, resp *http.Response, model stri
 		}
 	}
 
-	// Build OpenAI-style response
+	if err := scanner.Err(); err != nil {
+		log.Println("读取响应体错误:", err)
+		sendError(w, http.StatusInternalServerError, "读取响应体时发生错误")
+		return
+	}
+
+	// 构建 OpenAI API 风格的响应 JSON
 	openAIResponse := map[string]interface{}{
-		"id":      "chatcmpl-" + uuid.New().String(),
+		"id":      "chatcmpl-" + strings.ReplaceAll(uuid.New().String(), "-", ""),
 		"object":  "chat.completion",
 		"created": getUnixTime(),
 		"model":   model,
@@ -623,23 +633,47 @@ func handleNormalResponse(w http.ResponseWriter, resp *http.Response, model stri
 			map[string]interface{}{
 				"index":         0,
 				"message":       map[string]interface{}{"role": "assistant", "content": contentBuilder.String()},
+				"refusal":       nil, // 添加 'refusal' 字段
+				"logprobs":      nil, // 添加 'logprobs' 字段
 				"finish_reason": "stop",
 			},
 		},
+		"usage": map[string]interface{}{
+			"prompt_tokens":     16, // 示例值，可以根据实际计算
+			"completion_tokens": completionTokens,
+			"total_tokens":      16 + completionTokens,
+			"prompt_tokens_details": map[string]interface{}{
+				"cached_tokens": 0,
+				"audio_tokens":  0,
+			},
+			"completion_tokens_details": map[string]interface{}{
+				"reasoning_tokens":           0,
+				"audio_tokens":               0,
+				"accepted_prediction_tokens": 0,
+				"rejected_prediction_tokens": 0,
+			},
+		},
+		"system_fingerprint": "fp_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12],
 	}
 
+	// 构建 JSON 响应体
 	responseBody, err := json.Marshal(openAIResponse)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "构建响应时发生错误")
 		return
 	}
 
+	// 发送响应
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, err = w.Write(responseBody)
 	if err != nil {
+		log.Println("写入响应失败:", err)
 		return
 	}
+
+	// 日志记录接收到的内容
+	log.Printf("从 API 接收到的内容: %s\n", contentBuilder.String())
 }
 
 // Handle Image Stream Response
@@ -741,7 +775,37 @@ func handleImageStreamResponse(w http.ResponseWriter, resp *http.Response) {
 	}
 }
 
-// Handle Normal Stream Response
+// shouldFilterOut 根据自定义逻辑过滤消息
+func shouldFilterOut(sseJson map[string]interface{}) bool {
+	// 过滤包含 "ping" 字段的消息
+	if _, exists := sseJson["ping"]; exists {
+		return true
+	}
+
+	// 检查 "data" 字段
+	if data, exists := sseJson["data"].(map[string]interface{}); exists {
+		// 过滤包含 "analytics" 的消息
+		if _, exists := data["analytics"]; exists {
+			return true
+		}
+		// 过滤同时包含 "operation" 和 "message" 的消息
+		if _, opExists := data["operation"]; opExists {
+			if _, msgExists := data["message"]; msgExists {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// generateId 生成长度为24的随机字符串
+func generateId() string {
+	return strings.ReplaceAll(uuid.New().String(), "-", "")[:24]
+}
+
+// handleStreamResponse 处理流式响应并添加新功能
+// handleStreamResponse 处理流式响应并添加新功能
 func handleStreamResponse(w http.ResponseWriter, resp *http.Response) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -749,6 +813,7 @@ func handleStreamResponse(w http.ResponseWriter, resp *http.Response) {
 		return
 	}
 
+	// 设置响应头
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -761,51 +826,110 @@ func handleStreamResponse(w http.ResponseWriter, resp *http.Response) {
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimSpace(line[6:])
 			if data == "[DONE]" {
-				_, err := w.Write([]byte(line + "\n"))
+				// 转发 [DONE] 信号
+				_, err := w.Write([]byte(line + "\n\n"))
 				if err != nil {
 					return
 				}
 				flusher.Flush()
 				break
 			}
+
 			var sseJson map[string]interface{}
 			if err := json.Unmarshal([]byte(data), &sseJson); err != nil {
 				log.Println("JSON解析错误:", err)
 				continue
 			}
-			if choices, exists := sseJson["choices"].([]interface{}); exists {
-				for _, choice := range choices {
-					choiceMap, ok := choice.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					if delta, exists := choiceMap["delta"].(map[string]interface{}); exists {
-						if content, exists := delta["content"].(string); exists {
-							newSseJson := map[string]interface{}{
-								"choices": []interface{}{
-									map[string]interface{}{
-										"index": 0,
-										"delta": map[string]interface{}{
-											"content": content,
+
+			// 过滤特定类型的消息
+			if shouldFilterOut(sseJson) {
+				continue
+			}
+
+			// 处理包含 web sources 的消息
+			if dataField, exists := sseJson["data"]; exists {
+				if dataMap, ok := dataField.(map[string]interface{}); ok {
+					if webField, exists := dataMap["web"]; exists {
+						if webMap, ok := webField.(map[string]interface{}); ok {
+							if sources, exists := webMap["sources"].([]interface{}); exists {
+								var urlsList []string
+								for _, source := range sources {
+									if sourceMap, ok := source.(map[string]interface{}); ok {
+										if url, exists := sourceMap["url"].(string); exists {
+											urlsList = append(urlsList, url)
+										}
+									}
+								}
+								if len(urlsList) > 0 {
+									urlsJoined := strings.Join(urlsList, "\n\n")
+									log.Println("从 API 接收到的内容:", urlsJoined)
+
+									// 提取 model 字段，提供默认值 "gpt-4o"
+									model, _ := getString(sseJson, "model", "gpt-4o")
+
+									// 构造新的 SSE 消息，填入 content 字段
+									newSseJson := map[string]interface{}{
+										"id":      generateId(),
+										"object":  "chat.completion.chunk",
+										"created": getUnixTime(),
+										"model":   model,
+										"choices": []interface{}{
+											map[string]interface{}{
+												"index": 0,
+												"delta": map[string]interface{}{
+													"content": "\n" + urlsJoined + "\n",
+												},
+												"finish_reason": nil,
+											},
 										},
-									},
-								},
-								"created":            getUnixTime(),
-								"id":                 uuid.New().String(),
-								"model":              sseJson["model"],
-								"system_fingerprint": "fp_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12],
+										"system_fingerprint": "fp_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12],
+									}
+
+									newSseLine, err := json.Marshal(newSseJson)
+									if err != nil {
+										log.Println("JSON编码错误:", err)
+										continue
+									}
+
+									// 发送新构造的 SSE 消息
+									_, err = w.Write([]byte("data: " + string(newSseLine) + "\n\n"))
+									if err != nil {
+										return
+									}
+									flusher.Flush()
+									continue
+								}
 							}
-							newSseLine, _ := json.Marshal(newSseJson)
-							_, err := w.Write([]byte("data: " + string(newSseLine) + "\n\n"))
-							if err != nil {
-								return
-							}
-							flusher.Flush()
 						}
 					}
 				}
 			}
+
+			// 处理 "choices" 字段并输出内容
+			//if choices, exists := sseJson["choices"].([]interface{}); exists {
+			//	for _, choice := range choices {
+			//		if choiceMap, ok := choice.(map[string]interface{}); ok {
+			//			if delta, exists := choiceMap["delta"].(map[string]interface{}); exists {
+			//				if content, exists := delta["content"].(string); exists {
+			//					//不换行打印
+			//					print(content)
+			//				}
+			//			}
+			//		}
+			//	}
+			//}
+
+			// 直接转发其他消息
+			_, err := w.Write([]byte(line + "\n\n"))
+			if err != nil {
+				return
+			}
+			flusher.Flush()
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Println("读取响应体错误:", err)
 	}
 }
 
@@ -1076,7 +1200,7 @@ func createHTTPServer(initialPort int) (*http.Server, int, error) {
 		mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, err := w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o","object":"model"},{"id":"gpt-4o-mini","object":"model"},{"id":"claude","object":"model"}]}`))
+			_, err := w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o","object":"model"},{"id":"gpt-4o-mini","object":"model"},{"id":"claude","object":"model"},{"id":"claude-3-5-sonnet","object":"model"}]}`))
 			if err != nil {
 				return
 			}
