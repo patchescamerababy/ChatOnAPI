@@ -56,11 +56,7 @@ public class CompletionHandler implements HttpHandler {
             exchange.sendResponseHeaders(405, -1);
             return;
         }
-//        boolean requestAllowed = Main.rateLimiter.tryAcquire();
-//        if (!requestAllowed) {
-//            sendError(exchange, "请求过于频繁，请稍后再试。", 429);
-//            return;
-//        }
+
         // 异步处理请求
         CompletableFuture.runAsync(() -> {
             try {
@@ -85,8 +81,6 @@ public class CompletionHandler implements HttpHandler {
                         .reduce("", (acc, line) -> acc + line);
 
                 JSONObject requestJson = new JSONObject(requestBody);
-
-                //System.out.println("接收到的补全请求 JSON: " + requestJson.toString());
 
                 StringBuilder contentBuilder = new StringBuilder();
                 JSONArray messages = requestJson.optJSONArray("messages");
@@ -532,7 +526,7 @@ public class CompletionHandler implements HttpHandler {
      * @param exchange 当前的 HttpExchange 对象
      * @param request  构建好的 HttpRequest 对象
      */
-    private void handleStreamResponse(HttpExchange exchange, HttpRequest request) throws IOException {
+    private void handleStreamResponse(HttpExchange exchange, HttpRequest request) {
         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofLines())
                 .thenAccept(response -> {
                     try {
