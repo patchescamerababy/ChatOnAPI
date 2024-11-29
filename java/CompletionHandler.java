@@ -85,7 +85,6 @@ public class CompletionHandler implements HttpHandler {
                 StringBuilder contentBuilder = new StringBuilder();
                 JSONArray messages = requestJson.optJSONArray("messages");
                 double temperature = requestJson.optDouble("temperature", 0.6);
-                double topP = requestJson.optDouble("top_p", 0.9);
                 int maxTokens = requestJson.optInt("max_tokens", 8000);
                 String model = requestJson.optString("model", "gpt-4o");
                 boolean isStream = requestJson.optBoolean("stream", false);
@@ -241,11 +240,10 @@ public class CompletionHandler implements HttpHandler {
                     newRequestJson.put("source", "chat/free");
                 }
                 newRequestJson.put("temperature", temperature);
-                newRequestJson.put("top_p", topP);
                 newRequestJson.put("messages", messages);
 
                 String modifiedRequestBody = newRequestJson.toString();
-//                System.out.println("修改后的请求 JSON: " + newRequestJson.toString());
+                System.out.println("修改后的请求 JSON: \n" + newRequestJson.toString(4)+"\n");
                 // 获取一次性 Bearer Token
                 String[] tmpToken = BearerTokenGenerator.GetBearer(modifiedRequestBody);
                 // 使用通用的 HttpRequest 构建方法
