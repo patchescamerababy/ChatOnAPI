@@ -30,7 +30,7 @@ import (
 
 // Constants and Global Variables
 var (
-	models       = []string{"gpt-4o", "gpt-4o-mini", "claude", "claude-3-5-sonnet"}
+	models       = []string{"gpt-4o", "gpt-4o-mini", "claude", "claude-3-5-sonnet", "claude-3-haiku"}
 	baseURL      = "http://localhost"
 	initialPort  = 8080 // 默认初始端口设置为8080，避免需要root权限
 	baseURLMutex sync.RWMutex
@@ -124,8 +124,8 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 	// Process messages
 	var contentBuilder strings.Builder
 	messages, ok := requestJson["messages"].([]interface{})
-	temperature, _ := getFloat(requestJson, "temperature", 0.6)
-	topP, _ := getFloat(requestJson, "top_p", 0.9)
+	//temperature, _ := getFloat(requestJson, "temperature", 0.6)
+	//topP, _ := getFloat(requestJson, "top_p", 0.9)
 	maxTokens, _ := getInt(requestJson, "max_tokens", 8000)
 	model, _ := getString(requestJson, "model", "gpt-4o")
 	isStream, _ := getBool(requestJson, "stream", false)
@@ -268,7 +268,7 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !modelValid {
-		model = "gpt-4o"
+		model = "claude-3-5-sonnet"
 	}
 
 	// Build new request JSON
@@ -278,12 +278,12 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 		"max_tokens":          maxTokens,
 		"model":               model,
 		"source":              "chat/image_upload",
-		"temperature":         temperature,
-		"top_p":               topP,
-		"messages":            requestJson["messages"],
+		//"temperature":         temperature,
+		//"top_p":               topP,
+		"messages": requestJson["messages"],
 	}
 	if !hasImage {
-		newRequestJson["source"] = "chat/pro"
+		newRequestJson["source"] = "chat/free"
 	}
 
 	modifiedRequestBodyBytes, err := json.Marshal(newRequestJson)
@@ -1200,7 +1200,7 @@ func createHTTPServer(initialPort int) (*http.Server, int, error) {
 		mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, err := w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o","object":"model"},{"id":"gpt-4o-mini","object":"model"},{"id":"claude","object":"model"},{"id":"claude-3-5-sonnet","object":"model"}]}`))
+			_, err := w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o","object":"model"},{"id":"gpt-4o-mini","object":"model"},{"id":"claude","object":"model"},{"id":"claude-3-5-sonnet","object":"model"},{"id":"claude-3-haiku","object":"model"}]}`))
 			if err != nil {
 				return
 			}
