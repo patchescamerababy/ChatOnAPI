@@ -203,7 +203,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     # 处理消息内容
     messages = request_body.get("messages", [])
     temperature = request_body.get("temperature", 1.0)
-    top_p = request_body.get("top_p", 1.0)
+    #top_p = request_body.get("top_p", 1.0)
     max_tokens = request_body.get("max_tokens", 8000)
     model = request_body.get("model", "gpt-4o")
     is_stream = request_body.get("stream", False)  # 获取 stream 字段
@@ -282,7 +282,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
         "model": model,
         "source": "chat/pro",
         "temperature": temperature,
-        "top_p": top_p,
+        #"top_p": top_p,
         "messages": cleaned_messages,
     }
 
