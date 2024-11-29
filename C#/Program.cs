@@ -9,7 +9,7 @@ namespace ChatOnServer
     class Program
     {
         public static readonly string[] Models = { "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude" };
-        public static int Port = 8080;
+        public static int Port = 8080; // 使用非特权端口
         public static string BaseURL = "http://localhost";
 
         [STAThread]
@@ -59,6 +59,7 @@ namespace ChatOnServer
 
             HttpListener listener = CreateHttpServer(initialPort);
 
+            // 添加上下文处理程序
             var completionHandler = new CompletionHandler(baseURL, imagesDir);
             var textToImageHandler = new TextToImageHandler();
 
@@ -69,6 +70,7 @@ namespace ChatOnServer
                 try
                 {
                     var context = await listener.GetContextAsync();
+                    // 使用异步 Task.Run
                     _ = Task.Run(async () => await HandleRequest(context, completionHandler, textToImageHandler));
                 }
                 catch (HttpListenerException ex)
@@ -79,6 +81,7 @@ namespace ChatOnServer
                         Console.WriteLine("HttpListener 已停止监听。退出循环。");
                         break;
                     }
+                    // 继续监听，不退出循环
                 }
                 catch (ObjectDisposedException)
                 {
@@ -88,6 +91,7 @@ namespace ChatOnServer
                 catch (Exception ex)
                 {
                     Console.WriteLine($"未知异常: {ex.Message}");
+                    // 决定是否退出循环或继续
                 }
             }
 
@@ -134,55 +138,69 @@ namespace ChatOnServer
 
             Console.WriteLine($"无法从端口 {initialPort} 开始绑定到任何端口。程序即将退出。");
             Environment.Exit(1);
-            return null;\
+            return null; // 这行代码不会被执行，但为了编译需要
         }
 
         private static async Task HandleRequest(HttpListenerContext context, CompletionHandler completionHandler, TextToImageHandler textToImageHandler)
+{
+    try
+    {
+        string path = context.Request.Url.AbsolutePath;
+        
+        // 首先检查是否是 /images/ 路径的GET请求
+        if (path.StartsWith("/images/", StringComparison.OrdinalIgnoreCase))
         {
-            try
+            if (context.Request.HttpMethod.Equals("GET", StringComparison.OrdinalIgnoreCase))
             {
-                string path = context.Request.Url.AbsolutePath;
-                if (path.StartsWith("/v1/chat/completions", StringComparison.OrdinalIgnoreCase))
-                {
-                    await completionHandler.Handle(context);
-                }
-                else if (path.StartsWith("/v1/images/generations", StringComparison.OrdinalIgnoreCase))
-                {
-                    await textToImageHandler.Handle(context);
-                }
-                else if (path.StartsWith("/images/", StringComparison.OrdinalIgnoreCase))
-                {
-                    await ServeImage(context);
-                }
-                else if (path.Equals("/v1/models", StringComparison.OrdinalIgnoreCase))
-                {
-                    await ServeModels(context);
-                }
-                else
-                {
-                    // Not found
-                    context.Response.StatusCode = 404;
-                    byte[] notFoundBytes = Encoding.UTF8.GetBytes("Not Found");
-                    await context.Response.OutputStream.WriteAsync(notFoundBytes, 0, notFoundBytes.Length);
-                    context.Response.Close();
-                }
+                await ServeImage(context);
             }
-            catch (Exception ex)
+            else
             {
-                Console.WriteLine($"Exception occurred while processing request: {ex.Message}");
-                if (context.Response.OutputStream.CanWrite)
-                {
-                    await Utils.SendErrorAsync(context.Response, $"Internal server error: {ex.Message}");
-                }
+                // 如果不是GET请求，返回405 Method Not Allowed
+                context.Response.StatusCode = 405;
+                byte[] methodNotAllowedBytes = Encoding.UTF8.GetBytes("Method Not Allowed");
+                context.Response.AddHeader("Allow", "GET");
+                await context.Response.OutputStream.WriteAsync(methodNotAllowedBytes, 0, methodNotAllowedBytes.Length);
+                context.Response.Close();
             }
-            // Do not close the response stream here; let the specific handler do that.
         }
+        else if (path.StartsWith("/v1/chat/completions", StringComparison.OrdinalIgnoreCase))
+        {
+            await completionHandler.Handle(context);
+        }
+        else if (path.StartsWith("/v1/images/generations", StringComparison.OrdinalIgnoreCase))
+        {
+            await textToImageHandler.Handle(context);
+        }
+        else if (path.Equals("/v1/models", StringComparison.OrdinalIgnoreCase))
+        {
+            await ServeModels(context);
+        }
+        else
+        {
+            // Not found
+            context.Response.StatusCode = 404;
+            byte[] notFoundBytes = Encoding.UTF8.GetBytes("Not Found");
+            await context.Response.OutputStream.WriteAsync(notFoundBytes, 0, notFoundBytes.Length);
+            context.Response.Close();
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Exception occurred while processing request: {ex.Message}");
+        if (context.Response.OutputStream.CanWrite)
+        {
+            await Utils.SendErrorAsync(context.Response, $"Internal server error: {ex.Message}");
+        }
+    }
+}
+
 
         private static async Task ServeModels(HttpListenerContext context)
         {
             context.Response.ContentType = "application/json";
             context.Response.StatusCode = 200;
-            string jsonResponse = "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-4o\",\"object\":\"model\"},{\"id\":\"gpt-4o-mini\",\"object\":\"model\"},{\"id\":\"claude-3-5-sonnet\",\"object\":\"model\"},{\"id\":\"claude\",\"object\":\"model\"}]}";
+            string jsonResponse = "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-4o\",\"object\":\"model\"},{\"id\":\"gpt-4o-mini\",\"object\":\"model\"},{\"id\":\"claude-3-5-sonnet\",\"object\":\"model\"},{\"id\":\"claude\",\"object\":\"model\"},{\"id\":\"claude-3-haiku\",\"object\":\"model\"}]}";
             byte[] responseBytes = Encoding.UTF8.GetBytes(jsonResponse);
             await context.Response.OutputStream.WriteAsync(responseBytes, 0, responseBytes.Length);
             context.Response.Close();
