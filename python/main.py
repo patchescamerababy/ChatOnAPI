@@ -300,7 +300,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
         "Date": formatted_date,
         "Client-time-zone": "-05:00",
         "Authorization": bearer_token,
-        "User-Agent": "ChatOn_Android/1.53.502",
+        "User-Agent": "ChatOn_Android/1.56.483",
         "Accept-Language": "en-US",
         "X-Cl-Options": "hb",
         "Content-Type": "application/json; charset=UTF-8",
