@@ -523,7 +523,6 @@ async def images_generations(request: Request):
                 "image_aspect_ratio": "1:1",  # 图片比例可选：1:1/9:19/16:9/4:3
                 "image_style": "photographic",  # 固定 image_style，可根据需要调整
                 "max_tokens": 8000,
-                "n": 1,  # 每次请求生成一张图像
                 "messages": [
                     {
                         "content": "You are a helpful artist, please draw a picture. Based on imagination, draw a picture with user message.",
