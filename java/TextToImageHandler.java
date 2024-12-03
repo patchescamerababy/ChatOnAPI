@@ -6,15 +6,14 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.*;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -22,12 +21,22 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import utils.BearerTokenGenerator;
+import utils.BearerTokenGeneratorNative;
 import utils.utils;
 
 public class TextToImageHandler implements HttpHandler {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final Executor executor = Executors.newFixedThreadPool(10); // 使用固定大小的线程池
+    private static final int CACHE_MAX_SIZE = 100;
+    private static final String OPENAI_API_KEY = "YOUR_OPENAI_API_KEY"; // 请替换为您的 OpenAI API 密钥
+    private static final String OPENAI_API_URI = "http://127.0.0.1:"+Main.port+"/v1/chat/completions";
 
+    private static final Map<String, String> promptCache = Collections.synchronizedMap(new LinkedHashMap<String, String>(CACHE_MAX_SIZE, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > CACHE_MAX_SIZE;
+        }
+    });
     @Override
     public void handle(HttpExchange exchange) throws IOException {
         // 设置 CORS 头
@@ -77,7 +86,23 @@ public class TextToImageHandler implements HttpHandler {
                     utils.sendError(exchange, "Prompt 不能为空。");
                     return;
                 }
-
+                //可选: 润色提示词
+//                synchronized (promptCache) {
+//                    if (promptCache.containsKey(userPrompt)) {
+//                        userPrompt = promptCache.get(userPrompt);
+//                        System.out.println("Cache hit for prompt: " + userPrompt);
+//                    } else {
+//                        // 使用 OpenAI API 润色用户的提示词
+//                            userPrompt = refinePrompt(userPrompt);
+//                        if (userPrompt == null || userPrompt.isEmpty()) {
+//                            utils.sendError(exchange, "Failed to refine the prompt using OpenAI API.");
+//                            return;
+//                        }
+//                        // 将润色后的提示词存入缓存
+//                        promptCache.put(userPrompt, userPrompt);
+//                        System.out.println("Cache updated with prompt: " + userPrompt);
+//                    }
+//                }
                 System.out.println("Prompt: " + userPrompt);
                 System.out.println("Number of images to generate (n): " + n);
 
@@ -202,7 +227,6 @@ public class TextToImageHandler implements HttpHandler {
                             textToImageJson.put("image_aspect_ratio", "1:1");
                             textToImageJson.put("image_style", "anime"); // 固定 image_style
                             textToImageJson.put("max_tokens", 8000);
-                            textToImageJson.put("n", 1); // 每次请求生成一张图像
                             JSONArray messages = new JSONArray();
                             JSONObject message = new JSONObject();
                             message.put("content", "You are a helpful artist, please draw a picture. Based on imagination, draw a picture with user message.");
@@ -214,7 +238,7 @@ public class TextToImageHandler implements HttpHandler {
                             messages.put(userMessage);
                             textToImageJson.put("messages", messages);
                             textToImageJson.put("model", "gpt-4o"); // 固定 model
-                            textToImageJson.put("source", "chat/pro_image"); // 固定 source
+                            textToImageJson.put("source", "chat/free"); // 固定 source
 
                             String modifiedRequestBody = textToImageJson.toString();
 
@@ -340,6 +364,101 @@ public class TextToImageHandler implements HttpHandler {
             }
 
         }, executor);
+    }
+    /**
+     * 使用 OpenAI 的 chat/completions API 润色用户的提示词
+     *
+     * @param prompt 用户的原始提示词
+     * @return 润色后的提示词
+     */
+    private String refinePrompt(String prompt) {
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(OPENAI_API_URI);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Authorization", "Bearer " + OPENAI_API_KEY);
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setDoOutput(true);
+
+            // 设置超时时间（以毫秒为单位）
+            connection.setConnectTimeout(30000); // 30 秒连接超时
+            connection.setReadTimeout(60000);    // 60 秒读取超时
+
+            // 构建请求体
+            JSONObject requestBody = new JSONObject();
+            requestBody.put("model", "claude-3-5-sonnet");
+            requestBody.put("stream", false); // 这里设置为 false，因为我们需要完整的润色结果
+
+            // 设置系统和用户消息
+            JSONArray messages = new JSONArray();
+
+            // 适当的系统内容，引导模型润色提示词
+            JSONObject systemMessage = new JSONObject();
+            systemMessage.put("role", "system");
+            systemMessage.put("content", "You are an assistant that refines and improves user-provided prompts for image generation. Ensure the prompt is clear, descriptive, and optimized for generating high-quality images. Only tell me in English in few long sentences.");
+            messages.put(systemMessage);
+
+            // 用户的原始提示词
+            JSONObject userMessage = new JSONObject();
+            userMessage.put("role", "user");
+            userMessage.put("content", prompt);
+            messages.put(userMessage);
+
+            requestBody.put("messages", messages);
+
+            // 发送请求体
+            try (OutputStream os = connection.getOutputStream()) {
+                byte[] input = requestBody.toString().getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
+            }
+
+            // 处理响应
+            int responseCode = connection.getResponseCode();
+            InputStream responseStream = (responseCode >= 200 && responseCode < 300) ?
+                    connection.getInputStream() : connection.getErrorStream();
+
+            if (responseCode >= 200 && responseCode < 300) {
+                // 读取响应内容
+                BufferedReader reader = new BufferedReader(new InputStreamReader(responseStream, StandardCharsets.UTF_8));
+                StringBuilder responseBuilder = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    responseBuilder.append(line);
+                }
+
+                JSONObject responseJson = new JSONObject(responseBuilder.toString());
+                JSONArray choices = responseJson.getJSONArray("choices");
+                if (choices.length() > 0) {
+                    JSONObject firstChoice = choices.getJSONObject(0);
+                    String refinedPrompt = firstChoice.getJSONObject("message").getString("content").trim();
+                    return refinedPrompt;
+                } else {
+                    System.err.println("OpenAI API 返回的 choices 数组为空。");
+                    return null;
+                }
+            } else {
+                // 读取错误信息
+                BufferedReader reader = new BufferedReader(new InputStreamReader(responseStream, StandardCharsets.UTF_8));
+                StringBuilder errorBuilder = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    errorBuilder.append(line);
+                }
+
+                String errorResponse = errorBuilder.toString();
+                System.err.println("OpenAI API 返回错误 (" + responseCode + "): " + errorResponse);
+                return null;
+            }
+
+        } catch (IOException | JSONException e) {
+            System.err.println("调用 OpenAI API 失败: " + e.getMessage());
+            return null;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
     }
 
     /**
