@@ -99,7 +99,8 @@ java -jar 80 https://example.com
 
 Bearer核心算法可联系📧patches.camera_0m@icloud.com获取
 
-Java的DLL：https://api-chaton.pages.dev/bearer_token_generator.dll
+个人使用可通过Java JNI调用以下DLL
+
+	https://api-chaton.pages.dev/bearer_token_generator.dll
 
 在src/utils/BearerTokenGeneratorNative.java中调用
-
