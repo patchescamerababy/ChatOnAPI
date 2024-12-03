@@ -411,7 +411,7 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 		"model":  "gpt-4o",         // 固定 model
-		"source": "chat/pro_image", // 固定 source
+		"source": "chat/free", // 固定 source
 	}
 
 	modifiedRequestBodyBytes, err := json.Marshal(textToImageJson)
