@@ -21,7 +21,7 @@ Demo👇有限试用、需要提供任意authorization，均支持联网。如�
 
  	curl --request POST 'https://api-chaton.pages.dev/v1/chat/completions' \
  	--header 'Content-Type: application/json' \
- 	--header "Authorization: 123" \
+ 	--header "Authorization: Bearer 123" \
  	--data '{"top_p":1,"stream":false,"temperature":0,"messages":[{"role":"user","content":"hello"}],"model":"gpt-4o"}'
   
 画图：仅为gpt-4o/gpt-4o-mini
@@ -34,14 +34,14 @@ Demo👇有限试用、需要提供任意authorization，均支持联网。如�
 
 	curl --request POST 'https://api-chaton.pages.dev/v1/images/generations' \
 	--header 'Content-Type: application/json' \
-	--header "Authorization: 123" \
+	--header "Authorization: Bearer 123" \
 	--data '{"prompt":"girl","response_format":"b64_json","model":"gpt-4o","style":"vivid"}'
  
 或者
 
  	curl --request POST 'https://api-chaton.pages.dev/v1/images/generations' \
 	--header 'Content-Type: application/json' \
-	--header "Authorization: 123" \
+	--header "Authorization: Bearer 123" \
 	--data '{"prompt": "girl", "model": "gpt-4o", "n": 1, "size": "1024x1024"}'
 
 由于有CF盾，请求频繁会有429
