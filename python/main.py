@@ -534,7 +534,7 @@ async def images_generations(request: Request):
                     }
                 ],
                 "model": "gpt-4o",
-                "source": "chat/pro_image"  # 固定 source
+                "source": "chat/free"  # 固定 source
             }
 
             modified_request_body = json.dumps(text_to_image_json, ensure_ascii=False)
