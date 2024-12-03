@@ -60,7 +60,7 @@ func buildHttpRequest(modifiedRequestBody string, tmpToken []string) (*http.Requ
 	req.Header.Set("Date", tmpToken[1])
 	req.Header.Set("Client-time-zone", "-05:00")
 	req.Header.Set("Authorization", tmpToken[0])
-	req.Header.Set("User-Agent", "ChatOn_Android/1.53.457")
+	req.Header.Set("User-Agent", "ChatOn_Android/1.55.488")
 	req.Header.Set("Accept-Language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
