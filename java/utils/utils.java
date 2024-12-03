@@ -24,7 +24,7 @@ public class utils {
                 .header("Date", tmpToken[1])
                 .header("Client-time-zone", "-05:00")
                 .header("Authorization", tmpToken[0])
-                .header("User-Agent", "ChatOn_Android/1.53.502")
+                .header("User-Agent", "ChatOn_Android/1.55.488")
                 .header("Accept-Language", "en-US")
                 .header("X-Cl-Options", "hb")
                 .header("Content-Type", "application/json; charset=UTF-8")
